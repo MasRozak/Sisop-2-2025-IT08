@@ -28,6 +28,7 @@ void get_paths(const char *home, const char *username, char *log_path, char *pid
     if (flag_path) snprintf(flag_path, 512, "%s/.debugmon_fail_flag", home);
 }
 
+// Tulis log ke file
 void write_log(const char *log_path, const char *process_name, const char *status) {
     FILE *log = fopen(log_path, "a");
     if (!log) return;
@@ -39,12 +40,14 @@ void write_log(const char *log_path, const char *process_name, const char *statu
     fclose(log);
 }
 
+// Cek apakah string adalah angka
 int is_number(const char *s) {
     for (int i = 0; s[i]; i++)
         if (!isdigit(s[i])) return 0;
     return 1;
 }
 
+// Ambil info UID dan nama proses dari /proc/[pid]/status
 bool get_process_info(const char *pid, uid_t *uid, char *name, size_t name_size) {
     char status_path[256];
     snprintf(status_path, sizeof(status_path), "/proc/%s/status", pid);
@@ -69,17 +72,51 @@ bool get_process_info(const char *pid, uid_t *uid, char *name, size_t name_size)
     return (*uid != (uid_t)-1);
 }
 
-bool is_failing_mode(const char *home) {
-    char flag_path[512];
-    get_paths(home, NULL, NULL, NULL, flag_path);
+// Hitung CPU usage (%) dan memory (KB)
+bool get_cpu_mem_usage(const char *pid, float *cpu_usage, long *mem_kb) {
+    char path[256];
+    FILE *f;
 
-    FILE *flag = fopen(flag_path, "r");
-    if (!flag) return false;
+    // Ambil uptime sistem
+    float uptime = 0;
+    f = fopen("/proc/uptime", "r");
+    if (!f) return false;
+    fscanf(f, "%f", &uptime);
+    fclose(f);
 
-    char mode[16];
-    fscanf(flag, "%15s", mode);
-    fclose(flag);
-    return strcmp(mode, "FAILING") == 0;
+    // Ambil /proc/[pid]/stat
+    snprintf(path, sizeof(path), "/proc/%s/stat", pid);
+    f = fopen(path, "r");
+    if (!f) return false;
+
+    long utime, stime, starttime;
+    int i = 0;
+    char comm[256], state;
+    unsigned long dummy;
+    int pid_i;
+    fscanf(f, "%d %s %c", &pid_i, comm, &state);
+    for (i = 3; i <= 13; i++) fscanf(f, "%lu", &dummy); // skip
+    fscanf(f, "%lu %lu", &utime, &stime);
+    for (i = 16; i <= 21; i++) fscanf(f, "%lu", &dummy); // skip
+    fscanf(f, "%lu", &starttime);
+    fclose(f);
+
+    long clk_tck = sysconf(_SC_CLK_TCK);
+    float total_time = (float)(utime + stime) / clk_tck;
+    float seconds = uptime - ((float)starttime / clk_tck);
+    *cpu_usage = seconds > 0 ? 100 * (total_time / seconds) : 0;
+
+    // Ambil RSS dari /proc/[pid]/statm
+    snprintf(path, sizeof(path), "/proc/%s/statm", pid);
+    f = fopen(path, "r");
+    if (!f) return false;
+    long rss;
+    fscanf(f, "%*ld %ld", &rss); // skip size
+    fclose(f);
+
+    long page_size = sysconf(_SC_PAGESIZE);
+    *mem_kb = rss * page_size / 1024;
+    return true;
 }
 
 void handle_list(const char *username) {
@@ -91,16 +128,34 @@ void handle_list(const char *username) {
     if (!proc) return;
 
     struct dirent *entry;
+    printf("%-8s %-20s %-10s %-10s\n", "PID", "COMMAND", "CPU(%)", "MEM(KB)");
     while ((entry = readdir(proc))) {
         if (is_number(entry->d_name)) {
             uid_t uid;
             char name[256];
-            if (get_process_info(entry->d_name, &uid, name, sizeof(name)) && uid == uid_target)
-                printf("PID: %s | Name: %s\n", entry->d_name, name);
+            if (get_process_info(entry->d_name, &uid, name, sizeof(name)) && uid == uid_target) {
+                float cpu;
+                long mem;
+                if (get_cpu_mem_usage(entry->d_name, &cpu, &mem))
+                    printf("%-8s %-20s %-10.2f %-10ld\n", entry->d_name, name, cpu, mem);
+            }
         }
     }
 
     closedir(proc);
+}
+
+bool is_failing_mode(const char *home) {
+    char flag_path[512];
+    get_paths(home, NULL, NULL, NULL, flag_path);
+
+    FILE *flag = fopen(flag_path, "r");
+    if (!flag) return false;
+
+    char mode[16];
+    fscanf(flag, "%15s", mode);
+    fclose(flag);
+    return strcmp(mode, "FAILING") == 0;
 }
 
 void monitor_user(uid_t uid_target, const char *log_path, bool fail_mode) {
