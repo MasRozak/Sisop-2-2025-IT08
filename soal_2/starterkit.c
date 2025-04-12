@@ -78,8 +78,6 @@ char* base64_decode(const char *input) {
     return output;
 }
 
-
-
 // -------------------- FUNGSI OPERASI --------------------
 void download_file() {
     pid_t pid = fork();
@@ -114,16 +112,15 @@ void move_files(const char *src_dir, const char *dst_dir, const char *mode) {
 
     struct dirent *ent;
     while ((ent = readdir(dir)) != NULL) {
+        if (strcmp(ent->d_name, ".") == 0 || strcmp(ent->d_name, "..") == 0)
+            continue;
+
         char src[512], dst[512];
         snprintf(src, sizeof(src), "%s/%s", src_dir, ent->d_name);
         snprintf(dst, sizeof(dst), "%s/%s", dst_dir, ent->d_name);
-        
+
         struct stat st;
         if (stat(src, &st) == 0 && S_ISREG(st.st_mode)) {
-            char src[512], dst[512];
-            snprintf(src, sizeof(src), "%s/%s", src_dir, ent->d_name);
-            snprintf(dst, sizeof(dst), "%s/%s", dst_dir, ent->d_name);
-
             if (rename(src, dst) == 0) {
                 char log[512];
                 sprintf(log, "%s - Successfully moved to %s directory.", ent->d_name, mode);
@@ -138,20 +135,71 @@ void move_files(const char *src_dir, const char *dst_dir, const char *mode) {
     closedir(dir);
 }
 
+void copy_files(const char *src_dir, const char *dst_dir, const char *mode) {
+    DIR *dir = opendir(src_dir);
+    if (!dir) return;
+
+    struct dirent *ent;
+    while ((ent = readdir(dir)) != NULL) {
+        if (strcmp(ent->d_name, ".") == 0 || strcmp(ent->d_name, "..") == 0)
+            continue;
+
+        char clean_name[256];
+        strncpy(clean_name, ent->d_name, sizeof(clean_name) - 1);
+        clean_name[sizeof(clean_name) - 1] = '\0';
+
+        char *newline = strchr(clean_name, '\n');
+        if (newline) *newline = '\0';
+
+        char src[512], dst[512];
+        snprintf(src, sizeof(src), "%s/%s", src_dir, ent->d_name);
+        snprintf(dst, sizeof(dst), "%s/%s", dst_dir, clean_name);
+
+        struct stat st;
+        if (stat(src, &st) == 0 && S_ISREG(st.st_mode)) {
+            FILE *in = fopen(src, "rb");
+            FILE *out = fopen(dst, "wb");
+
+            if (!in || !out) {
+                char log[512];
+                sprintf(log, "Failed to open files for copy %s: %s", ent->d_name, strerror(errno));
+                log_activity(log);
+                if (in) fclose(in);
+                if (out) fclose(out);
+                continue;
+            }
+
+            char buffer[4096];
+            size_t bytes;
+            while ((bytes = fread(buffer, 1, sizeof(buffer), in)) > 0) {
+                fwrite(buffer, 1, bytes, out);
+            }
+
+            fclose(in);
+            fclose(out);
+
+            char log[512];
+            sprintf(log, "%s - Successfully copied to %s directory.", clean_name, mode);
+            log_activity(log);
+        }
+    }
+    closedir(dir);
+}
+
 void eradicate_files() {
     DIR *dir = opendir(QUARANTINE);
     if (!dir) return;
 
     struct dirent *ent;
     while ((ent = readdir(dir)) != NULL) {
+        if (strcmp(ent->d_name, ".") == 0 || strcmp(ent->d_name, "..") == 0)
+            continue;
+
         char path[512];
-snprintf(path, sizeof(path), "%s/%s", QUARANTINE, ent->d_name);
+        snprintf(path, sizeof(path), "%s/%s", QUARANTINE, ent->d_name);
 
-struct stat st;
-if (stat(path, &st) == 0 && S_ISREG(st.st_mode)) {
-            char path[512];
-            snprintf(path, sizeof(path), "%s/%s", QUARANTINE, ent->d_name);
-
+        struct stat st;
+        if (stat(path, &st) == 0 && S_ISREG(st.st_mode)) {
             if (remove(path) == 0) {
                 char log[512];
                 sprintf(log, "%s - Successfully deleted.", ent->d_name);
@@ -197,7 +245,6 @@ void start_daemon() {
     }
 
     if (pid > 0) {
-        // Parent process
         printf("Started decryption daemon (PID: %d)\n", pid);
         FILE *f = fopen(PID_FILE, "w");
         if (f) {
@@ -211,21 +258,16 @@ void start_daemon() {
         return;
     }
 
-    // Child process (daemon)
     if (setsid() < 0) {
         perror("setsid failed");
         exit(1);
     }
 
     umask(0);
-    // chdir("/"); // DIHAPUS supaya path tetap relatif ke tempat jalan program
-
-    // Close standard file descriptors
     close(STDIN_FILENO);
     close(STDOUT_FILENO);
     close(STDERR_FILENO);
 
-    // Main daemon loop
     while (1) {
         DIR *dir = opendir(STARTER_KIT);
         if (!dir) {
@@ -238,40 +280,30 @@ void start_daemon() {
         while ((ent = readdir(dir)) != NULL) {
             if (strcmp(ent->d_name, ".") == 0 || strcmp(ent->d_name, "..") == 0)
                 continue;
-        
+
             char oldpath[512];
             snprintf(oldpath, sizeof(oldpath), "%s/%s", STARTER_KIT, ent->d_name);
-        
+
             struct stat st;
             if (stat(oldpath, &st) == 0 && S_ISREG(st.st_mode)) {
-        
                 char *decoded = base64_decode(ent->d_name);
-                if (decoded) {
-        
-                    if (strcmp(ent->d_name, decoded) != 0) {
-                        char newpath[512];
-                        snprintf(newpath, sizeof(newpath), "%s/%s", STARTER_KIT, decoded);
-        
-                        if (rename(oldpath, newpath) == 0) {
+                if (decoded && strcmp(ent->d_name, decoded) != 0) {
+                    char newpath[512];
+                    snprintf(newpath, sizeof(newpath), "%s/%s", STARTER_KIT, decoded);
 
-                        } else {
-                            char log[512];
-                            sprintf(log, "Failed to rename %s to %s: %s", ent->d_name, decoded, strerror(errno));
-                            log_activity(log);
-                        }
+                    if (rename(oldpath, newpath) != 0) {
+                        char log[512];
+                        sprintf(log, "Failed to rename %s to %s: %s", ent->d_name, decoded, strerror(errno));
+                        log_activity(log);
                     }
                     free(decoded);
-                } else {
-
                 }
             }
         }
-        
         closedir(dir);
         sleep(5);
     }
 }
-
 
 // -------------------- MAIN --------------------
 int main(int argc, char *argv[]) {
@@ -287,20 +319,19 @@ int main(int argc, char *argv[]) {
 
         printf("Selesai\n");
 
-        printf("Usage: %s [--init | --decrypt | --quarantine | --return | --eradicate | --shutdown]\n", argv[0]);
+        printf("Usage: %s [--decrypt | --quarantine | --return | --eradicate | --shutdown]\n", argv[0]);
         return 1;
     }
 
     mkdir(STARTER_KIT, 0755);
     mkdir(QUARANTINE, 0755);
 
-
     if (strcmp(argv[1], "--decrypt") == 0) {
         start_daemon();
     } else if (strcmp(argv[1], "--quarantine") == 0) {
         move_files(STARTER_KIT, QUARANTINE, "quarantine");
     } else if (strcmp(argv[1], "--return") == 0) {
-        move_files(QUARANTINE, STARTER_KIT, "starter kit");
+        copy_files(QUARANTINE, STARTER_KIT, "starter kit");
     } else if (strcmp(argv[1], "--eradicate") == 0) {
         eradicate_files();
     } else if (strcmp(argv[1], "--shutdown") == 0) {
