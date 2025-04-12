@@ -43,11 +43,13 @@ int base64_char_to_val(char c) {
 
 char* base64_decode(const char *input) {
     int len = strlen(input);
-    if (len % 4 != 0) return NULL; // Panjang base64 harus kelipatan 4
+    if (len % 4 != 0) {
+        return NULL;
+    }
 
     int pad = 0;
-    if (len > 0 && input[len-1] == '=') pad++;
-    if (len > 1 && input[len-2] == '=') pad++;
+    if (len >= 1 && input[len - 1] == '=') pad++;
+    if (len >= 2 && input[len - 2] == '=') pad++;
 
     int out_len = (len * 3) / 4 - pad;
     char *output = malloc(out_len + 1);
@@ -56,9 +58,9 @@ char* base64_decode(const char *input) {
     int i, j = 0;
     for (i = 0; i < len; i += 4) {
         int v1 = base64_char_to_val(input[i]);
-        int v2 = base64_char_to_val(input[i+1]);
-        int v3 = (i+2 < len) ? base64_char_to_val(input[i+2]) : -1;
-        int v4 = (i+3 < len) ? base64_char_to_val(input[i+3]) : -1;
+        int v2 = base64_char_to_val(input[i + 1]);
+        int v3 = (input[i + 2] != '=') ? base64_char_to_val(input[i + 2]) : 0;
+        int v4 = (input[i + 3] != '=') ? base64_char_to_val(input[i + 3]) : 0;
 
         if (v1 < 0 || v2 < 0 || v3 < -1 || v4 < -1) {
             free(output);
@@ -66,15 +68,17 @@ char* base64_decode(const char *input) {
         }
 
         output[j++] = (v1 << 2) | (v2 >> 4);
-        if (v3 >= 0 && input[i+2] != '=')
+        if (input[i + 2] != '=')
             output[j++] = ((v2 & 0x0F) << 4) | (v3 >> 2);
-        if (v4 >= 0 && input[i+3] != '=')
+        if (input[i + 3] != '=')
             output[j++] = ((v3 & 0x03) << 6) | v4;
     }
 
     output[out_len] = '\0';
     return output;
 }
+
+
 
 // -------------------- FUNGSI OPERASI --------------------
 void download_file() {
@@ -110,7 +114,12 @@ void move_files(const char *src_dir, const char *dst_dir, const char *mode) {
 
     struct dirent *ent;
     while ((ent = readdir(dir)) != NULL) {
-        if (ent->d_type == DT_REG) {
+        char src[512], dst[512];
+        snprintf(src, sizeof(src), "%s/%s", src_dir, ent->d_name);
+        snprintf(dst, sizeof(dst), "%s/%s", dst_dir, ent->d_name);
+        
+        struct stat st;
+        if (stat(src, &st) == 0 && S_ISREG(st.st_mode)) {
             char src[512], dst[512];
             snprintf(src, sizeof(src), "%s/%s", src_dir, ent->d_name);
             snprintf(dst, sizeof(dst), "%s/%s", dst_dir, ent->d_name);
@@ -135,7 +144,11 @@ void eradicate_files() {
 
     struct dirent *ent;
     while ((ent = readdir(dir)) != NULL) {
-        if (ent->d_type == DT_REG) {
+        char path[512];
+snprintf(path, sizeof(path), "%s/%s", QUARANTINE, ent->d_name);
+
+struct stat st;
+if (stat(path, &st) == 0 && S_ISREG(st.st_mode)) {
             char path[512];
             snprintf(path, sizeof(path), "%s/%s", QUARANTINE, ent->d_name);
 
@@ -205,7 +218,7 @@ void start_daemon() {
     }
 
     umask(0);
-    chdir("/");
+    // chdir("/"); // DIHAPUS supaya path tetap relatif ke tempat jalan program
 
     // Close standard file descriptors
     close(STDIN_FILENO);
@@ -216,29 +229,31 @@ void start_daemon() {
     while (1) {
         DIR *dir = opendir(STARTER_KIT);
         if (!dir) {
+            log_activity("Failed to open STARTER_KIT directory.");
             sleep(5);
             continue;
         }
 
         struct dirent *ent;
         while ((ent = readdir(dir)) != NULL) {
-            if (ent->d_type == DT_REG) {
-                char oldpath[512];
-                snprintf(oldpath, sizeof(oldpath), "%s/%s", STARTER_KIT, ent->d_name);
-
-                // Coba decode nama file
+            if (strcmp(ent->d_name, ".") == 0 || strcmp(ent->d_name, "..") == 0)
+                continue;
+        
+            char oldpath[512];
+            snprintf(oldpath, sizeof(oldpath), "%s/%s", STARTER_KIT, ent->d_name);
+        
+            struct stat st;
+            if (stat(oldpath, &st) == 0 && S_ISREG(st.st_mode)) {
+        
                 char *decoded = base64_decode(ent->d_name);
                 if (decoded) {
-                    // Buat path baru hanya jika decoding berhasil dan berbeda dengan aslinya
+        
                     if (strcmp(ent->d_name, decoded) != 0) {
                         char newpath[512];
                         snprintf(newpath, sizeof(newpath), "%s/%s", STARTER_KIT, decoded);
-
-                        // Coba rename file
+        
                         if (rename(oldpath, newpath) == 0) {
-                            char log[512];
-                            sprintf(log, "Successfully decrypted %s to %s", ent->d_name, decoded);
-                            log_activity(log);
+
                         } else {
                             char log[512];
                             sprintf(log, "Failed to rename %s to %s: %s", ent->d_name, decoded, strerror(errno));
@@ -246,25 +261,21 @@ void start_daemon() {
                         }
                     }
                     free(decoded);
+                } else {
+
                 }
             }
         }
+        
         closedir(dir);
         sleep(5);
     }
 }
 
+
 // -------------------- MAIN --------------------
 int main(int argc, char *argv[]) {
     if (argc != 2) {
-        printf("Usage: %s [--init | --decrypt | --quarantine | --return | --eradicate | --shutdown]\n", argv[0]);
-        return 1;
-    }
-
-    mkdir(STARTER_KIT, 0755);
-    mkdir(QUARANTINE, 0755);
-
-    if (strcmp(argv[1], "--init") == 0) {
         printf("Mendownload starter kit dari %s...\n", URL);
         download_file();
 
@@ -276,7 +287,15 @@ int main(int argc, char *argv[]) {
 
         printf("Selesai\n");
 
-    } else if (strcmp(argv[1], "--decrypt") == 0) {
+        printf("Usage: %s [--init | --decrypt | --quarantine | --return | --eradicate | --shutdown]\n", argv[0]);
+        return 1;
+    }
+
+    mkdir(STARTER_KIT, 0755);
+    mkdir(QUARANTINE, 0755);
+
+
+    if (strcmp(argv[1], "--decrypt") == 0) {
         start_daemon();
     } else if (strcmp(argv[1], "--quarantine") == 0) {
         move_files(STARTER_KIT, QUARANTINE, "quarantine");
