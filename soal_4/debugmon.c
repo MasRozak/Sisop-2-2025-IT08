@@ -33,10 +33,11 @@ void write_log(const char *log_path, const char *process_name, const char *statu
     FILE *log = fopen(log_path, "a");
     if (!log) return;
 
-    char timestamp[64];
+    char d[64], h[64];
     time_t now = time(NULL);
-    strftime(timestamp, sizeof(timestamp), "%d:%m:%Y-%H:%M:%S", localtime(&now));
-    fprintf(log, "[%s]_%s_%s\n", timestamp, process_name, status);
+    strftime(d, sizeof(d), "%d:%m:%Y", localtime(&now));
+    strftime(h, sizeof(h), "%H:%M:%S", localtime(&now));
+    fprintf(log, "[%s]-[%s]_%s_%s\n", d, h, process_name, status);
     fclose(log);
 }
 
