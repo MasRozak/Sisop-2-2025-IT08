@@ -19,7 +19,6 @@
 
 const char *URL = "https://drive.usercontent.google.com/u/0/uc?id=1_5GxIGfQr3mNKuavJbte_AoRkEQLXSKS&export=download";
 
-// -------------------- UTILITAS --------------------
 void log_activity(const char *message) {
     FILE *log = fopen(LOG_FILE, "a");
     if (log) {
@@ -78,7 +77,38 @@ char* base64_decode(const char *input) {
     return output;
 }
 
-// -------------------- FUNGSI OPERASI --------------------
+void clean_newline_filenames(const char *dirpath) {
+    DIR *dir = opendir(dirpath);
+    if (!dir) return;
+
+    struct dirent *entry;
+    char oldpath[1024], newpath[1024];
+
+    while ((entry = readdir(dir)) != NULL) {
+        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
+            continue;
+
+        if (strchr(entry->d_name, '\n') != NULL) {
+            snprintf(oldpath, sizeof(oldpath), "%s/%s", dirpath, entry->d_name);
+
+            // Hilangkan newline dari nama file
+            strncpy(newpath, entry->d_name, sizeof(newpath));
+            newpath[strcspn(newpath, "\n")] = '\0';
+
+            char full_newpath[1024];
+            if (snprintf(full_newpath, sizeof(full_newpath), "%s/%s", dirpath, newpath) >= sizeof(full_newpath)) {
+                fprintf(stderr, "Path terlalu panjang, dilewati: %s/%s\n", dirpath, newpath);
+                continue;
+            }
+
+            rename(oldpath, full_newpath);
+        }
+    }
+
+    closedir(dir);
+}
+
+
 void download_file() {
     pid_t pid = fork();
     if (pid == 0) {
@@ -271,7 +301,7 @@ void start_daemon() {
     while (1) {
         DIR *dir = opendir(QUARANTINE);
         if (!dir) {
-            log_activity("Failed to open STARTER_KIT directory.");
+            log_activity("Failed to open QUARANTINE directory.");
             sleep(5);
             continue;
         }
@@ -281,19 +311,35 @@ void start_daemon() {
             if (strcmp(ent->d_name, ".") == 0 || strcmp(ent->d_name, "..") == 0)
                 continue;
 
+            char clean_name[256];
+            strncpy(clean_name, ent->d_name, sizeof(clean_name) - 1);
+            clean_name[sizeof(clean_name) - 1] = '\0';
+
+            char *newline = strchr(clean_name, '\n');
+            if (newline) {
+                *newline = '\0';
+                char log[512];
+                sprintf(log, "%s - Ignored newline in filename.", ent->d_name);
+                log_activity(log);
+            }
+
             char oldpath[512];
             snprintf(oldpath, sizeof(oldpath), "%s/%s", QUARANTINE, ent->d_name);
 
             struct stat st;
             if (stat(oldpath, &st) == 0 && S_ISREG(st.st_mode)) {
-                char *decoded = base64_decode(ent->d_name);
-                if (decoded && strcmp(ent->d_name, decoded) != 0) {
+                char *decoded = base64_decode(clean_name);
+                if (decoded && strcmp(clean_name, decoded) != 0) {
                     char newpath[512];
                     snprintf(newpath, sizeof(newpath), "%s/%s", QUARANTINE, decoded);
 
                     if (rename(oldpath, newpath) != 0) {
                         char log[512];
                         sprintf(log, "Failed to rename %s to %s: %s", ent->d_name, decoded, strerror(errno));
+                        log_activity(log);
+                    } else {
+                        char log[512];
+                        sprintf(log, "Successfully renamed %s to %s", ent->d_name, decoded);
                         log_activity(log);
                     }
                     free(decoded);
@@ -305,7 +351,6 @@ void start_daemon() {
     }
 }
 
-// -------------------- MAIN --------------------
 int main(int argc, char *argv[]) {
     if (argc != 2) {
         printf("Mendownload starter kit dari %s...\n", URL);
@@ -330,6 +375,7 @@ int main(int argc, char *argv[]) {
         start_daemon();
     } else if (strcmp(argv[1], "--quarantine") == 0) {
         move_files(STARTER_KIT, QUARANTINE, "quarantine");
+        clean_newline_filenames("quarantine");
     } else if (strcmp(argv[1], "--return") == 0) {
         copy_files(QUARANTINE, STARTER_KIT, "starter kit");
     } else if (strcmp(argv[1], "--eradicate") == 0) {
@@ -340,6 +386,6 @@ int main(int argc, char *argv[]) {
         printf("Invalid option.\n");
         return 1;
     }
-
+clean_newline_filenames("quarantine");
     return 0;
 }
