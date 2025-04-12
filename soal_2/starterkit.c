@@ -269,7 +269,7 @@ void start_daemon() {
     close(STDERR_FILENO);
 
     while (1) {
-        DIR *dir = opendir(STARTER_KIT);
+        DIR *dir = opendir(QUARANTINE);
         if (!dir) {
             log_activity("Failed to open STARTER_KIT directory.");
             sleep(5);
@@ -282,14 +282,14 @@ void start_daemon() {
                 continue;
 
             char oldpath[512];
-            snprintf(oldpath, sizeof(oldpath), "%s/%s", STARTER_KIT, ent->d_name);
+            snprintf(oldpath, sizeof(oldpath), "%s/%s", QUARANTINE, ent->d_name);
 
             struct stat st;
             if (stat(oldpath, &st) == 0 && S_ISREG(st.st_mode)) {
                 char *decoded = base64_decode(ent->d_name);
                 if (decoded && strcmp(ent->d_name, decoded) != 0) {
                     char newpath[512];
-                    snprintf(newpath, sizeof(newpath), "%s/%s", STARTER_KIT, decoded);
+                    snprintf(newpath, sizeof(newpath), "%s/%s", QUARANTINE, decoded);
 
                     if (rename(oldpath, newpath) != 0) {
                         char log[512];
