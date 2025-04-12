@@ -36,9 +36,34 @@ void download_and_extract() {
         return;
     }
     printf("Downloading Clues.zip...\n");
-    system("wget -q --show-progress \"https://drive.usercontent.google.com/u/0/uc?id=1xFn1OBJUuSdnApDseEczKhtNzyGekauK&export=download\" -O Clues.zip");
-    system("unzip -q Clues.zip");
-    system("rm Clues.zip");
+    //wget
+    char *wget_args[] = {
+        "wget",
+        "-q",
+        "--show-progress",
+        "https://drive.usercontent.google.com/u/0/uc?id=1xFn1OBJUuSdnApDseEczKhtNzyGekauK&export=download",
+        "-O",
+        "Clues.zip",
+        NULL
+    };
+    run_command(wget_args);
+    
+    // unzip
+    char *unzip_args[] = {
+        "unzip",
+        "-q",
+        "Clues.zip",
+        NULL
+    };
+    run_command(unzip_args);
+
+    // rm Clues.zip
+    char *rm_args[] = {
+        "rm",
+        "Clues.zip",
+        NULL
+    };
+    run_command(rm_args);
     printf("Downloaded and extracted Clues.zip\n");
 }
 
