@@ -1,343 +1,240 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
 #include <dirent.h>
-#include <sys/types.h>
 #include <sys/stat.h>
-#include <fcntl.h>
-#include <signal.h>
-#include <time.h>
+#include <unistd.h>
+#include <ctype.h>
 #include <sys/wait.h>
-#include <errno.h>
 
-#define STARTER_KIT "./starter_kit"
-#define QUARANTINE "./quarantine"
-#define ZIP_NAME "starter.zip"
-#define LOG_FILE "./activity.log"
-#define PID_FILE "./decrypt.pid"
+#define CLUE_DIR "Clues"
+#define FILTERED_DIR "Filtered"
 
-const char *URL = "https://drive.usercontent.google.com/u/0/uc?id=1_5GxIGfQr3mNKuavJbte_AoRkEQLXSKS&export=download";
-
-// -------------------- UTILITAS --------------------
-void log_activity(const char *message) {
-    FILE *log = fopen(LOG_FILE, "a");
-    if (log) {
-        time_t now = time(NULL);
-        struct tm *t = localtime(&now);
-        fprintf(log, "[%02d-%02d-%d][%02d:%02d:%02d] - %s\n",
-                t->tm_mday, t->tm_mon + 1, t->tm_year + 1900,
-                t->tm_hour, t->tm_min, t->tm_sec, message);
-        fclose(log);
-    }
-}
-
-int base64_char_to_val(char c) {
-    if ('A' <= c && c <= 'Z') return c - 'A';
-    if ('a' <= c && c <= 'z') return c - 'a' + 26;
-    if ('0' <= c && c <= '9') return c - '0' + 52;
-    if (c == '+') return 62;
-    if (c == '/') return 63;
-    return -1;
-}
-
-char* base64_decode(const char *input) {
-    int len = strlen(input);
-    if (len % 4 != 0) {
-        return NULL;
-    }
-
-    int pad = 0;
-    if (len >= 1 && input[len - 1] == '=') pad++;
-    if (len >= 2 && input[len - 2] == '=') pad++;
-
-    int out_len = (len * 3) / 4 - pad;
-    char *output = malloc(out_len + 1);
-    if (!output) return NULL;
-
-    int i, j = 0;
-    for (i = 0; i < len; i += 4) {
-        int v1 = base64_char_to_val(input[i]);
-        int v2 = base64_char_to_val(input[i + 1]);
-        int v3 = (input[i + 2] != '=') ? base64_char_to_val(input[i + 2]) : 0;
-        int v4 = (input[i + 3] != '=') ? base64_char_to_val(input[i + 3]) : 0;
-
-        if (v1 < 0 || v2 < 0 || v3 < -1 || v4 < -1) {
-            free(output);
-            return NULL;
-        }
-
-        output[j++] = (v1 << 2) | (v2 >> 4);
-        if (input[i + 2] != '=')
-            output[j++] = ((v2 & 0x0F) << 4) | (v3 >> 2);
-        if (input[i + 3] != '=')
-            output[j++] = ((v3 & 0x03) << 6) | v4;
-    }
-
-    output[out_len] = '\0';
-    return output;
-}
-
-void download_file() {
+void run_command(char *const argv[]) {
     pid_t pid = fork();
     if (pid == 0) {
-        char *args[] = {"wget", (char *)URL, "-O", ZIP_NAME, NULL};
-        execvp("wget", args);
-        exit(1);
-    } else {
-        wait(NULL);
-    }
-}
-
-void unzip_file() {
-    mkdir(STARTER_KIT, 0755);
-    pid_t pid = fork();
-    if (pid == 0) {
-        char *args[] = {"unzip", "-o", ZIP_NAME, "-d", STARTER_KIT, NULL};
-        execvp("unzip", args);
-        exit(1);
-    } else {
-        wait(NULL);
-    }
-}
-
-void remove_zip() {
-    remove(ZIP_NAME);
-}
-
-void move_files(const char *src_dir, const char *dst_dir, const char *mode) {
-    DIR *dir = opendir(src_dir);
-    if (!dir) return;
-
-    struct dirent *ent;
-    while ((ent = readdir(dir)) != NULL) {
-        if (strcmp(ent->d_name, ".") == 0 || strcmp(ent->d_name, "..") == 0)
-            continue;
-
-        char src[512], dst[512];
-        snprintf(src, sizeof(src), "%s/%s", src_dir, ent->d_name);
-        snprintf(dst, sizeof(dst), "%s/%s", dst_dir, ent->d_name);
-
-        struct stat st;
-        if (stat(src, &st) == 0 && S_ISREG(st.st_mode)) {
-            if (rename(src, dst) == 0) {
-                char log[512];
-                sprintf(log, "%s - Successfully moved to %s directory.", ent->d_name, mode);
-                log_activity(log);
-            } else {
-                char log[512];
-                sprintf(log, "Failed to move %s: %s", ent->d_name, strerror(errno));
-                log_activity(log);
-            }
-        }
-    }
-    closedir(dir);
-}
-
-void copy_files(const char *src_dir, const char *dst_dir, const char *mode) {
-    DIR *dir = opendir(src_dir);
-    if (!dir) return;
-
-    struct dirent *ent;
-    while ((ent = readdir(dir)) != NULL) {
-        if (strcmp(ent->d_name, ".") == 0 || strcmp(ent->d_name, "..") == 0)
-            continue;
-
-        char clean_name[256];
-        strncpy(clean_name, ent->d_name, sizeof(clean_name) - 1);
-        clean_name[sizeof(clean_name) - 1] = '\0';
-
-        char *newline = strchr(clean_name, '\n');
-        if (newline) *newline = '\0';
-
-        char src[512], dst[512];
-        snprintf(src, sizeof(src), "%s/%s", src_dir, ent->d_name);
-        snprintf(dst, sizeof(dst), "%s/%s", dst_dir, clean_name);
-
-        struct stat st;
-        if (stat(src, &st) == 0 && S_ISREG(st.st_mode)) {
-            FILE *in = fopen(src, "rb");
-            FILE *out = fopen(dst, "wb");
-
-            if (!in || !out) {
-                char log[512];
-                sprintf(log, "Failed to open files for copy %s: %s", ent->d_name, strerror(errno));
-                log_activity(log);
-                if (in) fclose(in);
-                if (out) fclose(out);
-                continue;
-            }
-
-            char buffer[4096];
-            size_t bytes;
-            while ((bytes = fread(buffer, 1, sizeof(buffer), in)) > 0) {
-                fwrite(buffer, 1, bytes, out);
-            }
-
-            fclose(in);
-            fclose(out);
-
-            char log[512];
-            sprintf(log, "%s - Successfully copied to %s directory.", clean_name, mode);
-            log_activity(log);
-        }
-    }
-    closedir(dir);
-}
-
-void eradicate_files() {
-    DIR *dir = opendir(QUARANTINE);
-    if (!dir) return;
-
-    struct dirent *ent;
-    while ((ent = readdir(dir)) != NULL) {
-        if (strcmp(ent->d_name, ".") == 0 || strcmp(ent->d_name, "..") == 0)
-            continue;
-
-        char path[512];
-        snprintf(path, sizeof(path), "%s/%s", QUARANTINE, ent->d_name);
-
-        struct stat st;
-        if (stat(path, &st) == 0 && S_ISREG(st.st_mode)) {
-            if (remove(path) == 0) {
-                char log[512];
-                sprintf(log, "%s - Successfully deleted.", ent->d_name);
-                log_activity(log);
-            } else {
-                char log[512];
-                sprintf(log, "Failed to delete %s: %s", ent->d_name, strerror(errno));
-                log_activity(log);
-            }
-        }
-    }
-    closedir(dir);
-}
-
-void shutdown_daemon() {
-    FILE *f = fopen(PID_FILE, "r");
-    if (!f) {
-        printf("No PID file found.\n");
-        return;
-    }
-
-    int pid;
-    fscanf(f, "%d", &pid);
-    fclose(f);
-
-    if (kill(pid, SIGTERM) == 0) {
-        char log[256];
-        sprintf(log, "Successfully shut off decryption process with PID %d.", pid);
-        log_activity(log);
-        remove(PID_FILE);
-    } else {
-        char log[256];
-        sprintf(log, "Failed to kill process %d: %s", pid, strerror(errno));
-        log_activity(log);
-    }
-}
-
-void start_daemon() {
-    pid_t pid = fork();
-    if (pid < 0) {
+        execvp(argv[0], argv);
+        perror("execvp failed");
+        exit(EXIT_FAILURE);
+    } else if (pid < 0) {
         perror("fork failed");
-        exit(1);
+        exit(EXIT_FAILURE);
+    } else {
+        int status;
+        waitpid(pid, &status, 0);
+    }
+}
+
+int is_digit_filename(const char *filename) {
+    return strlen(filename) == 5 && isdigit(filename[0]) && strcmp(filename + 1, ".txt") == 0;
+}
+
+int is_alpha_filename(const char *filename) {
+    return strlen(filename) == 5 && isalpha(filename[0]) && strcmp(filename + 1, ".txt") == 0;
+}
+
+int cmp_filename(const void *a, const void *b) {
+    return strcmp(*(const char **)a, *(const char **)b);
+}
+
+int is_valid_file(const char *name) {
+    int len = strlen(name);
+    return len == 5 &&
+           name[1] == '.' && name[2] == 't' && name[3] == 'x' && name[4] == 't' &&
+           isalnum(name[0]);
+}
+
+void download_and_extract() {
+    struct stat st;
+    if (stat(CLUE_DIR, &st) == 0 && S_ISDIR(st.st_mode)) {
+        printf("Folder %s already exists. Skipping download.\n", CLUE_DIR);
+        return;
+    }
+    printf("Downloading Clues.zip...\n");
+
+    char *wget_args[] = {
+        "wget",
+        "-q",
+        "--show-progress",
+        "https://drive.usercontent.google.com/u/0/uc?id=1xFn1OBJUuSdnApDseEczKhtNzyGekauK&export=download",
+        "-O",
+        "Clues.zip",
+        NULL
+    };
+    run_command(wget_args);
+
+    char *unzip_args[] = {
+        "unzip",
+        "-q",
+        "Clues.zip",
+        NULL
+    };
+    run_command(unzip_args);
+
+    char *rm_args[] = {
+        "rm",
+        "Clues.zip",
+        NULL
+    };
+    run_command(rm_args);
+
+    printf("Downloaded and extracted Clues.zip\n");
+}
+
+void filter_files() {
+    DIR *d;
+    struct dirent *dir;
+    mkdir(FILTERED_DIR, 0755);
+
+    char *folders[] = {"Clues/ClueA", "Clues/ClueB", "Clues/ClueC", "Clues/ClueD"};
+    for (int i = 0; i < 4; i++) {
+        d = opendir(folders[i]);
+        if (!d) continue;
+
+        while ((dir = readdir(d)) != NULL) {
+            if (strcmp(dir->d_name, ".") == 0 || strcmp(dir->d_name, "..") == 0)
+                continue;
+
+            char src_path[512];
+            snprintf(src_path, sizeof(src_path), "%s/%s", folders[i], dir->d_name);
+
+            if (is_valid_file(dir->d_name)) {
+                char dest_path[512];
+                snprintf(dest_path, sizeof(dest_path), "%s/%s", FILTERED_DIR, dir->d_name);
+
+                FILE *src = fopen(src_path, "r");
+                FILE *dest = fopen(dest_path, "w");
+                if (src && dest) {
+                    char ch;
+                    while ((ch = fgetc(src)) != EOF)
+                        fputc(ch, dest);
+                }
+                if (src) fclose(src);
+                if (dest) fclose(dest);
+            }
+        }
+        closedir(d);
     }
 
-    if (pid > 0) {
-        printf("Started decryption daemon (PID: %d)\n", pid);
-        FILE *f = fopen(PID_FILE, "w");
-        if (f) {
-            fprintf(f, "%d", pid);
-            fclose(f);
-        }
+    for (int i = 0; i < 4; i++) {
+        d = opendir(folders[i]);
+        if (!d) continue;
+        while ((dir = readdir(d)) != NULL) {
+            if (strcmp(dir->d_name, ".") == 0 || strcmp(dir->d_name, "..") == 0)
+                continue;
 
-        char log[256];
-        sprintf(log, "Successfully started decryption process with PID %d.", pid);
-        log_activity(log);
+            char del_path[512];
+            snprintf(del_path, sizeof(del_path), "%s/%s", folders[i], dir->d_name);
+            remove(del_path);
+        }
+        closedir(d);
+    }
+
+    printf("Filtering completed. Original clue files removed.\n");
+}
+
+void combine_files() {
+    DIR *d = opendir(FILTERED_DIR);
+    struct dirent *dir;
+    char *digits[100], *alphas[100];
+    int d_count = 0, a_count = 0;
+
+    if (!d) {
+        perror("Could not open Filtered directory");
         return;
     }
 
-    if (setsid() < 0) {
-        perror("setsid failed");
-        exit(1);
+    while ((dir = readdir(d)) != NULL) {
+        if (is_digit_filename(dir->d_name)) {
+            digits[d_count++] = strdup(dir->d_name);
+        } else if (is_alpha_filename(dir->d_name)) {
+            alphas[a_count++] = strdup(dir->d_name);
+        }
+    }
+    closedir(d);
+
+    qsort(digits, d_count, sizeof(char *), cmp_filename);
+    qsort(alphas, a_count, sizeof(char *), cmp_filename);
+
+    FILE *combined = fopen("Combined.txt", "w");
+    if (!combined) {
+        perror("Failed to create Combined.txt");
+        return;
     }
 
-    umask(0);
-    close(STDIN_FILENO);
-    close(STDOUT_FILENO);
-    close(STDERR_FILENO);
-
-    while (1) {
-        DIR *dir = opendir(STARTER_KIT);
-        if (!dir) {
-            log_activity("Failed to open STARTER_KIT directory.");
-            sleep(5);
-            continue;
-        }
-
-        struct dirent *ent;
-        while ((ent = readdir(dir)) != NULL) {
-            if (strcmp(ent->d_name, ".") == 0 || strcmp(ent->d_name, "..") == 0)
-                continue;
-
-            char oldpath[512];
-            snprintf(oldpath, sizeof(oldpath), "%s/%s", STARTER_KIT, ent->d_name);
-
-            struct stat st;
-            if (stat(oldpath, &st) == 0 && S_ISREG(st.st_mode)) {
-                char *decoded = base64_decode(ent->d_name);
-                if (decoded && strcmp(ent->d_name, decoded) != 0) {
-                    char newpath[512];
-                    snprintf(newpath, sizeof(newpath), "%s/%s", STARTER_KIT, decoded);
-
-                    if (rename(oldpath, newpath) != 0) {
-                        char log[512];
-                        sprintf(log, "Failed to rename %s to %s: %s", ent->d_name, decoded, strerror(errno));
-                        log_activity(log);
-                    }
-                    free(decoded);
-                }
+    int i = 0, j = 0;
+    while (i < d_count || j < a_count) {
+        if (i < d_count) {
+            char path[512];
+            snprintf(path, sizeof(path), "%s/%s", FILTERED_DIR, digits[i]);
+            FILE *f = fopen(path, "r");
+            if (f) {
+                char ch;
+                while ((ch = fgetc(f)) != EOF)
+                    fputc(ch, combined);
+                fclose(f);
+                remove(path);
             }
+            free(digits[i]);
+            i++;
         }
-        closedir(dir);
-        sleep(5);
+
+        if (j < a_count) {
+            char path[512];
+            snprintf(path, sizeof(path), "%s/%s", FILTERED_DIR, alphas[j]);
+            FILE *f = fopen(path, "r");
+            if (f) {
+                char ch;
+                while ((ch = fgetc(f)) != EOF)
+                    fputc(ch, combined);
+                fclose(f);
+                remove(path);
+            }
+            free(alphas[j]);
+            j++;
+        }
     }
+
+    fclose(combined);
+    printf("Combined.txt created.\n");
+}
+
+char rot13(char c) {
+    if ('a' <= c && c <= 'z') return 'a' + (c - 'a' + 13) % 26;
+    if ('A' <= c && c <= 'Z') return 'A' + (c - 'A' + 13) % 26;
+    return c;
+}
+
+void decode_file() {
+    FILE *in = fopen("Combined.txt", "r");
+    FILE *out = fopen("Decoded.txt", "w");
+    if (!in || !out) return;
+
+    char c;
+    while ((c = fgetc(in)) != EOF) fputc(rot13(c), out);
+
+    fclose(in);
+    fclose(out);
+    printf("Decoded.txt created.\n");
 }
 
 int main(int argc, char *argv[]) {
-    if (argc != 2) {
-        printf("Mendownload starter kit dari %s...\n", URL);
-        download_file();
-
-        printf("Mengekstrak starter kit...\n");
-        unzip_file();
-
-        printf("Menghapus file zip...\n");
-        remove_zip();
-
-        printf("Selesai\n");
-
-        printf("Usage: %s [--decrypt | --quarantine | --return | --eradicate | --shutdown]\n", argv[0]);
-        return 1;
-    }
-
-    mkdir(STARTER_KIT, 0755);
-    mkdir(QUARANTINE, 0755);
-
-    if (strcmp(argv[1], "--decrypt") == 0) {
-        start_daemon();
-    } else if (strcmp(argv[1], "--quarantine") == 0) {
-        move_files(STARTER_KIT, QUARANTINE, "quarantine");
-    } else if (strcmp(argv[1], "--return") == 0) {
-        copy_files(QUARANTINE, STARTER_KIT, "starter kit");
-    } else if (strcmp(argv[1], "--eradicate") == 0) {
-        eradicate_files();
-    } else if (strcmp(argv[1], "--shutdown") == 0) {
-        shutdown_daemon();
+    if (argc == 1) {
+        download_and_extract();
+    } else if (argc == 3 && strcmp(argv[1], "-m") == 0) {
+        if (strcmp(argv[2], "Filter") == 0) {
+            filter_files();
+        } else if (strcmp(argv[2], "Combine") == 0) {
+            combine_files();
+        } else if (strcmp(argv[2], "Decode") == 0) {
+            decode_file();
+        } else {
+            fprintf(stderr, "Invalid mode. Usage: ./action [-m Filter|Combine|Decode]\n");
+            return 1;
+        }
     } else {
-        printf("Invalid option.\n");
+        fprintf(stderr, "Usage: ./action [-m Filter|Combine|Decode]\n");
         return 1;
     }
-
     return 0;
 }
