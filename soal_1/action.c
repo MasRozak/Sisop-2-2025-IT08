@@ -5,9 +5,25 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <ctype.h>
+#include <sys/wait.h>
 
 #define CLUE_DIR "Clues"
 #define FILTERED_DIR "Filtered"
+
+void run_command(char *const argv[]) {
+    pid_t pid = fork();
+    if (pid == 0) {
+        execvp(argv[0], argv);
+        perror("execvp failed");
+        exit(EXIT_FAILURE);
+    } else if (pid < 0) {
+        perror("fork failed");
+        exit(EXIT_FAILURE);
+    } else {
+        int status;
+        waitpid(pid, &status, 0);
+    }
+}
 
 int is_digit_filename(const char *filename) {
     return strlen(filename) == 5 && isdigit(filename[0]) && strcmp(filename + 1, ".txt") == 0;
@@ -20,7 +36,6 @@ int is_alpha_filename(const char *filename) {
 int cmp_filename(const void *a, const void *b) {
     return strcmp(*(const char **)a, *(const char **)b);
 }
-
 
 int is_valid_file(const char *name) {
     int len = strlen(name);
@@ -36,7 +51,7 @@ void download_and_extract() {
         return;
     }
     printf("Downloading Clues.zip...\n");
-    //wget
+
     char *wget_args[] = {
         "wget",
         "-q",
@@ -47,8 +62,7 @@ void download_and_extract() {
         NULL
     };
     run_command(wget_args);
-    
-    // unzip
+
     char *unzip_args[] = {
         "unzip",
         "-q",
@@ -57,13 +71,13 @@ void download_and_extract() {
     };
     run_command(unzip_args);
 
-    // rm Clues.zip
     char *rm_args[] = {
         "rm",
         "Clues.zip",
         NULL
     };
     run_command(rm_args);
+
     printf("Downloaded and extracted Clues.zip\n");
 }
 
@@ -81,11 +95,11 @@ void filter_files() {
             if (strcmp(dir->d_name, ".") == 0 || strcmp(dir->d_name, "..") == 0)
                 continue;
 
-            char src_path[256];
+            char src_path[512];
             snprintf(src_path, sizeof(src_path), "%s/%s", folders[i], dir->d_name);
 
             if (is_valid_file(dir->d_name)) {
-                char dest_path[256];
+                char dest_path[512];
                 snprintf(dest_path, sizeof(dest_path), "%s/%s", FILTERED_DIR, dir->d_name);
 
                 FILE *src = fopen(src_path, "r");
@@ -109,7 +123,7 @@ void filter_files() {
             if (strcmp(dir->d_name, ".") == 0 || strcmp(dir->d_name, "..") == 0)
                 continue;
 
-            char del_path[256];
+            char del_path[512];
             snprintf(del_path, sizeof(del_path), "%s/%s", folders[i], dir->d_name);
             remove(del_path);
         }
@@ -117,11 +131,6 @@ void filter_files() {
     }
 
     printf("Filtering completed. Original clue files removed.\n");
-}
-
-
-int cmp(const void *a, const void *b) {
-    return strcmp(*(const char **)a, *(const char **)b);
 }
 
 void combine_files() {
@@ -156,7 +165,7 @@ void combine_files() {
     int i = 0, j = 0;
     while (i < d_count || j < a_count) {
         if (i < d_count) {
-            char path[256];
+            char path[512];
             snprintf(path, sizeof(path), "%s/%s", FILTERED_DIR, digits[i]);
             FILE *f = fopen(path, "r");
             if (f) {
@@ -166,11 +175,12 @@ void combine_files() {
                 fclose(f);
                 remove(path);
             }
+            free(digits[i]);
             i++;
         }
 
         if (j < a_count) {
-            char path[256];
+            char path[512];
             snprintf(path, sizeof(path), "%s/%s", FILTERED_DIR, alphas[j]);
             FILE *f = fopen(path, "r");
             if (f) {
@@ -180,6 +190,7 @@ void combine_files() {
                 fclose(f);
                 remove(path);
             }
+            free(alphas[j]);
             j++;
         }
     }
