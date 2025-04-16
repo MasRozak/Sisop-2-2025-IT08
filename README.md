@@ -653,7 +653,7 @@ void run_trojan() {
 - `chmod(dest_path, 600);`: Ubah permission file hasil salinan menjadi hanya bisa dibaca dan ditulis oleh user (read-write, no execute).
 - `printf("Berhasil copy ke %s\n", dest_path);`: Tampilkan pesan sukses copy ke folder target.
 - `closedir(dir);`: Tutup direktori setelah semua folder selesai diproses.
-- `while (1) { sleep(5); }`: Loop selamanya dengan delay 5 detik utnuk mempertahankan proses tetap berjalan agar tidak langsung keluar.
+- `while (1) { sleep(5); }`: Loop selamanya dengan delay 5 detik untuk mempertahankan proses tetap berjalan agar tidak langsung keluar.
 
 D. Anak fitur pertama dan kedua terus berjalan secara berulang ulang selama malware masih hidup dengan interval 30 detik.
 
