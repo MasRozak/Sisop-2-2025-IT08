@@ -55,6 +55,7 @@ void run_command(char *const argv[]) {
     }
 }
 ```
+- Fungsi menjalankan perintah eksternal (command) dalam proses baru, menggunakan forking dan execvp.
 - `char *const argv[]`: Mendeklarasikan parameter yang menerima array pointer (array yang berisi alamat string) dan menjamin bahwa elemen array (pointer) tidak akan diubah. Namun, string yang ditunjuk oleh pointer masih bisa dimodifikasi.
 - `pid_t pid = fork();`: Membuat proses anak, dimana fungsi fork() mengembalikan nilai 0 pada proses anak (di mana kode berikutnya akan dieksekusi oleh anak), nilai positif (PID dari proses anak) pada proses induk, dan nilai negatif jika fork() gagal.
 - `if (pid == 0) { execvp(argv[0], argv); perror("execvp failed"); exit(EXIT_FAILURE); }`: Jika berada dalam proses anak, jalankan perintah yang diberikan (execvp). Jika gagal, tampilkan pesan error dan keluar dari proses anak dengan status gagal.
