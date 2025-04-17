@@ -342,6 +342,311 @@ E. "Password Check" → Karena kamu sudah mendapatkan password tersebut, kamu me
 ![image](https://github.com/user-attachments/assets/564c88b9-638c-43b7-8797-f4510c940839)
 
 ## Soal 2
+ [Author: Haidar / scar / hemorrhager / 恩赫勒夫]
+
+Pada suatu hari, Kanade ingin membuat sebuah musik baru beserta dengan anggota grup musik lainnya, yaitu Mizuki Akiyama, Mafuyu Asahina, dan Ena Shinonome. Namun sialnya, komputer Kanade terkena sebuah virus yang tidak diketahui. Setelah dianalisis oleh Kanade sendiri, ternyata virus ini bukanlah sebuah trojan, ransomware, maupun tipe virus berbahaya lainnya, melainkan hanya sebuah malware biasa yang hanya bisa membuat sebuah perangkat menjadi lebih lambat dari biasanya
+
+A. Sebagai teman yang baik, Mafuyu merekomendasikan Kanade untuk mendownload dan unzip sebuah starter kit berisi file - file acak (sudah termasuk virus) melalui [link](1_5GxIGfQr3mNKuavJbte_AoRkEQLXSKS) berikut agar dapat membantu Kanade dalam mengidentifikasi virus - virus yang akan datang. Jangan lupa untuk menghapus file zip asli setelah melakukan unzip
+
+```bash
+ void download_file() {
+    pid_t pid = fork();
+    if (pid == 0) {
+        char *args[] = {"wget", (char *)URL, "-O", ZIP_NAME, NULL};
+        execvp("wget", args);
+        exit(1);
+    } else {
+        wait(NULL);
+    }
+}
+
+void unzip_file() {
+    mkdir(STARTER_KIT, 0755);
+    pid_t pid = fork();
+    if (pid == 0) {
+        char *args[] = {"unzip", "-o", ZIP_NAME, "-d", STARTER_KIT, NULL};
+        execvp("unzip", args);
+        exit(1);
+    } else {
+        wait(NULL);
+    }
+}
+
+void remove_zip() {
+    remove(ZIP_NAME);
+}
+```
+
+B. Setelah mendownload starter kit tersebut, Mafuyu ternyata lupa bahwa pada starter kit tersebut, tidak ada alat untuk mendecrypt nama dari file yang diencrypt menggunakan algoritma Base64. Oleh karena itu, bantulah Mafuyu untuk membuat sebuah directory karantina yang dapat mendecrypt nama file yang ada di dalamnya (Hint: gunakan daemon).
+Penggunaan:
+    ./starterkit --decrypt
+    
+```bash
+void start_daemon() {
+    pid_t pid = fork();
+    if (pid < 0) {
+        perror("fork failed");
+        exit(1);
+    }
+
+    if (pid > 0) {
+        printf("Started decryption daemon (PID: %d)\n", pid);
+        FILE *f = fopen(PID_FILE, "w");
+        if (f) {
+            fprintf(f, "%d", pid);
+            fclose(f);
+        }
+
+        char log[256];
+        sprintf(log, "Successfully started decryption process with PID %d.", pid);
+        log_activity(log);
+        return;
+    }
+
+    if (setsid() < 0) {
+        perror("setsid failed");
+        exit(1);
+    }
+
+    umask(0);
+    close(STDIN_FILENO);
+    close(STDOUT_FILENO);
+    close(STDERR_FILENO);
+
+    while (1) {
+        DIR *dir = opendir(QUARANTINE);
+        if (!dir) {
+            log_activity("Failed to open QUARANTINE directory.");
+            sleep(5);
+            continue;
+        }
+
+        struct dirent *ent;
+        while ((ent = readdir(dir)) != NULL) {
+            if (strcmp(ent->d_name, ".") == 0 || strcmp(ent->d_name, "..") == 0)
+                continue;
+
+            char clean_name[256];
+            strncpy(clean_name, ent->d_name, sizeof(clean_name) - 1);
+            clean_name[sizeof(clean_name) - 1] = '\0';
+
+            char *newline = strchr(clean_name, '\n');
+            if (newline) {
+                *newline = '\0';
+                char log[512];
+                sprintf(log, "%s - Ignored newline in filename.", ent->d_name);
+                log_activity(log);
+            }
+
+            char oldpath[512];
+            snprintf(oldpath, sizeof(oldpath), "%s/%s", QUARANTINE, ent->d_name);
+
+            struct stat st;
+            if (stat(oldpath, &st) == 0 && S_ISREG(st.st_mode)) {
+                char *decoded = base64_decode(clean_name);
+                if (decoded && strcmp(clean_name, decoded) != 0) {
+                    char newpath[512];
+                    snprintf(newpath, sizeof(newpath), "%s/%s", QUARANTINE, decoded);
+
+                    if (rename(oldpath, newpath) != 0) {
+                        char log[512];
+                        sprintf(log, "Failed to rename %s to %s: %s", ent->d_name, decoded, strerror(errno));
+                        log_activity(log);
+                    } else {
+                        char log[512];
+                        sprintf(log, "Successfully renamed %s to %s", ent->d_name, decoded);
+                        log_activity(log);
+                    }
+                    free(decoded);
+                }
+            }
+        }
+        closedir(dir);
+        sleep(5);
+    }
+}
+```
+
+C. Karena Kanade adalah orang yang sangat pemalas (kecuali jika membuat musik), maka tambahkan juga fitur untuk memindahkan file yang ada pada directory starter kit ke directory karantina, dan begitu juga sebaliknya.
+Penggunaan:
+    ./starterkit --quarantine (pindahkan file dari directory starter kit ke karantina)
+    ./starterkit --return (pindahkan file dari directory karantina ke starter kit)
+
+```bash
+void move_files(const char *src_dir, const char *dst_dir, const char *mode) {
+    DIR *dir = opendir(src_dir);
+    if (!dir) return;
+
+    struct dirent *ent;
+    while ((ent = readdir(dir)) != NULL) {
+        if (strcmp(ent->d_name, ".") == 0 || strcmp(ent->d_name, "..") == 0)
+            continue;
+
+        char src[512], dst[512];
+        snprintf(src, sizeof(src), "%s/%s", src_dir, ent->d_name);
+        snprintf(dst, sizeof(dst), "%s/%s", dst_dir, ent->d_name);
+
+        struct stat st;
+        if (stat(src, &st) == 0 && S_ISREG(st.st_mode)) {
+            if (rename(src, dst) == 0) {
+                char log[512];
+                sprintf(log, "%s - Successfully moved to %s directory.", ent->d_name, mode);
+                log_activity(log);
+            } else {
+                char log[512];
+                sprintf(log, "Failed to move %s: %s", ent->d_name, strerror(errno));
+                log_activity(log);
+            }
+        }
+    }
+    closedir(dir);
+}
+```
+
+D. Ena memberikan ide kepada mereka untuk menambahkan fitur untuk menghapus file - file yang ada pada directory karantina. Mendengar ide yang bagus tersebut, Kanade pun mencoba untuk menambahkan fitur untuk menghapus seluruh file yang ada di dalam directory karantina.
+Penggunaan:
+    ./starterkit --eradicate 
+
+```bash
+void copy_files(const char *src_dir, const char *dst_dir, const char *mode) {
+    DIR *dir = opendir(src_dir);
+    if (!dir) return;
+
+    struct dirent *ent;
+    while ((ent = readdir(dir)) != NULL) {
+        if (strcmp(ent->d_name, ".") == 0 || strcmp(ent->d_name, "..") == 0)
+            continue;
+
+        char clean_name[256];
+        strncpy(clean_name, ent->d_name, sizeof(clean_name) - 1);
+        clean_name[sizeof(clean_name) - 1] = '\0';
+
+        char *newline = strchr(clean_name, '\n');
+        if (newline) *newline = '\0';
+
+        char src[512], dst[512];
+        snprintf(src, sizeof(src), "%s/%s", src_dir, ent->d_name);
+        snprintf(dst, sizeof(dst), "%s/%s", dst_dir, clean_name);
+
+        struct stat st;
+        if (stat(src, &st) == 0 && S_ISREG(st.st_mode)) {
+            FILE *in = fopen(src, "rb");
+            FILE *out = fopen(dst, "wb");
+
+            if (!in || !out) {
+                char log[512];
+                sprintf(log, "Failed to open files for copy %s: %s", ent->d_name, strerror(errno));
+                log_activity(log);
+                if (in) fclose(in);
+                if (out) fclose(out);
+                continue;
+            }
+
+            char buffer[4096];
+            size_t bytes;
+            while ((bytes = fread(buffer, 1, sizeof(buffer), in)) > 0) {
+                fwrite(buffer, 1, bytes, out);
+            }
+
+            fclose(in);
+            fclose(out);
+
+            char log[512];
+            sprintf(log, "%s - Successfully copied to %s directory.", clean_name, mode);
+            log_activity(log);
+        }
+    }
+    closedir(dir);
+}
+
+void eradicate_files() {
+    DIR *dir = opendir(QUARANTINE);
+    if (!dir) return;
+
+    struct dirent *ent;
+    while ((ent = readdir(dir)) != NULL) {
+        if (strcmp(ent->d_name, ".") == 0 || strcmp(ent->d_name, "..") == 0)
+            continue;
+
+        char path[512];
+        snprintf(path, sizeof(path), "%s/%s", QUARANTINE, ent->d_name);
+
+        struct stat st;
+        if (stat(path, &st) == 0 && S_ISREG(st.st_mode)) {
+            if (remove(path) == 0) {
+                char log[512];
+                sprintf(log, "%s - Successfully deleted.", ent->d_name);
+                log_activity(log);
+            } else {
+                char log[512];
+                sprintf(log, "Failed to delete %s: %s", ent->d_name, strerror(errno));
+                log_activity(log);
+            }
+        }
+    }
+    closedir(dir);
+}
+```
+
+E. Karena tagihan listrik Kanade sudah membengkak dan tidak ingin komputernya menyala secara terus - menerus, ia ingin program decrypt nama file miliknya dapat dimatikan secara aman berdasarkan PID dari proses program tersebut.
+Penggunaan:
+    ./starterkit --shutdown
+
+```bash
+void shutdown_daemon() {
+    FILE *f = fopen(PID_FILE, "r");
+    if (!f) {
+        printf("No PID file found.\n");
+        return;
+    }
+
+    int pid;
+    fscanf(f, "%d", &pid);
+    fclose(f);
+
+    if (kill(pid, SIGTERM) == 0) {
+        char log[256];
+        sprintf(log, "Successfully shut off decryption process with PID %d.", pid);
+        log_activity(log);
+        remove(PID_FILE);
+    } else {
+        char log[256];
+        sprintf(log, "Failed to kill process %d: %s", pid, strerror(errno));
+        log_activity(log);
+    }
+}
+```
+F. Mafuyu dan Kanade juga ingin program mereka dapat digunakan dengan aman dan nyaman tanpa membahayakan penggunanya sendiri, mengingat Mizuki yang masih linglung setelah keluar dari labirin Santerra De Laponte. Oleh karena itu, tambahkan error handling sederhana untuk mencegah penggunaan yang salah pada program tersebut.
+
+G. Terakhir, untuk mencatat setiap penggunaan program ini, Kanade beserta Mafuyu ingin menambahkan log dari setiap penggunaan program ini dan menyimpannya ke dalam file bernama activity.log.
+Format:
+    i. Decrypt: 
+        [dd-mm-YYYY][HH:MM:SS] - Successfully started decryption process with PID <pid>.
+
+    ii. Quarantine:
+        [dd-mm-YYYY][HH:MM:SS] - <nama file> - Successfully moved to quarantine directory.
+
+    iii. Return:
+        [dd-mm-YYYY][HH:MM:SS] - <nama file> - Successfully returned to starter kit directory.
+
+    iv. Eradicate:
+        [dd-mm-YYYY][HH:MM:SS] - <nama file> - Successfully deleted.
+
+    v. Shutdown:
+       [dd-mm-YYYY][HH:MM:SS] - Successfully shut off decryption process with PID <pid>.
+```bash
+void log_activity(const char *message) {
+    FILE *log = fopen(LOG_FILE, "a");
+    if (log) {
+        time_t now = time(NULL);
+        struct tm *t = localtime(&now);
+        fprintf(log, "[%02d-%02d-%d][%02d:%02d:%02d] - %s\n",
+                t->tm_mday, t->tm_mon + 1, t->tm_year + 1900,
+                t->tm_hour, t->tm_min, t->tm_sec, message);
+        fclose(log);
+    }
+}
+```
 
 ## Soal 3
 [Author: Afnaan / honque]
