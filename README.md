@@ -376,12 +376,79 @@ void remove_zip() {
     remove(ZIP_NAME);
 }
 ```
+Tampak pemanggilan fungsi dalam main program:
+
+```bash
+int main(int argc, char *argv[]) {
+    if (argc != 2) {
+        printf("Mendownload starter kit dari %s...\n", URL);
+        download_file();
+
+        printf("Mengekstrak starter kit...\n");
+        unzip_file();
+
+        printf("Menghapus file zip...\n");
+        remove_zip();
+
+        printf("Selesai\n");
+
+        printf("Usage: %s [--decrypt | --quarantine | --return | --eradicate | --shutdown]\n", argv[0]);
+        return 1;
+    }
+```
+/*nanti tambahin image output dalem terminal*/
 
 B. Setelah mendownload starter kit tersebut, Mafuyu ternyata lupa bahwa pada starter kit tersebut, tidak ada alat untuk mendecrypt nama dari file yang diencrypt menggunakan algoritma Base64. Oleh karena itu, bantulah Mafuyu untuk membuat sebuah directory karantina yang dapat mendecrypt nama file yang ada di dalamnya (Hint: gunakan daemon).
 Penggunaan:
     ./starterkit --decrypt
     
 ```bash
+int base64_char_to_val(char c) {
+    if ('A' <= c && c <= 'Z') return c - 'A';
+    if ('a' <= c && c <= 'z') return c - 'a' + 26;
+    if ('0' <= c && c <= '9') return c - '0' + 52;
+    if (c == '+') return 62;
+    if (c == '/') return 63;
+    return -1;
+}
+
+char* base64_decode(const char *input) {
+    int len = strlen(input);
+    if (len % 4 != 0) {
+        return NULL;
+    }
+
+    int pad = 0;
+    if (len >= 1 && input[len - 1] == '=') pad++;
+    if (len >= 2 && input[len - 2] == '=') pad++;
+
+    int out_len = (len * 3) / 4 - pad;
+    char *output = malloc(out_len + 1);
+    if (!output) return NULL;
+
+    int i, j = 0;
+    for (i = 0; i < len; i += 4) {
+        int v1 = base64_char_to_val(input[i]);
+        int v2 = base64_char_to_val(input[i + 1]);
+        int v3 = (input[i + 2] != '=') ? base64_char_to_val(input[i + 2]) : 0;
+        int v4 = (input[i + 3] != '=') ? base64_char_to_val(input[i + 3]) : 0;
+
+        if (v1 < 0 || v2 < 0 || v3 < -1 || v4 < -1) {
+            free(output);
+            return NULL;
+        }
+
+        output[j++] = (v1 << 2) | (v2 >> 4);
+        if (input[i + 2] != '=')
+            output[j++] = ((v2 & 0x0F) << 4) | (v3 >> 2);
+        if (input[i + 3] != '=')
+            output[j++] = ((v3 & 0x03) << 6) | v4;
+    }
+
+    output[out_len] = '\0';
+    return output;
+}
+
 void start_daemon() {
     pid_t pid = fork();
     if (pid < 0) {
@@ -467,6 +534,18 @@ void start_daemon() {
 }
 ```
 
+Pemanggilan fungsi dalam main program:
+
+```bash
+    mkdir(STARTER_KIT, 0755);
+    mkdir(QUARANTINE, 0755);
+
+    if (strcmp(argv[1], "--decrypt") == 0) {
+        start_daemon();
+    }
+```
+/*tambahin image terminal*/
+
 C. Karena Kanade adalah orang yang sangat pemalas (kecuali jika membuat musik), maka tambahkan juga fitur untuk memindahkan file yang ada pada directory starter kit ke directory karantina, dan begitu juga sebaliknya.
 Penggunaan:
     ./starterkit --quarantine (pindahkan file dari directory starter kit ke karantina)
@@ -502,6 +581,17 @@ void move_files(const char *src_dir, const char *dst_dir, const char *mode) {
     closedir(dir);
 }
 ```
+Pemanggilan fungsi dalam program utama:
+
+```bash
+     else if (strcmp(argv[1], "--quarantine") == 0) {
+        move_files(STARTER_KIT, QUARANTINE, "quarantine");
+        clean_newline_filenames("quarantine");
+    } else if (strcmp(argv[1], "--return") == 0) {
+        copy_files(QUARANTINE, STARTER_KIT, "starter kit");
+    }
+```
+/*Tambahin image terminal*/
 
 D. Ena memberikan ide kepada mereka untuk menambahkan fitur untuk menghapus file - file yang ada pada directory karantina. Mendengar ide yang bagus tersebut, Kanade pun mencoba untuk menambahkan fitur untuk menghapus seluruh file yang ada di dalam directory karantina.
 Penggunaan:
@@ -588,6 +678,14 @@ void eradicate_files() {
 }
 ```
 
+Tampilan pemanggilan fungsi dalam main program:
+```bash
+    else if (strcmp(argv[1], "--eradicate") == 0) {
+        eradicate_files();
+    }
+```
+/*Tambahin image terminal*/
+
 E. Karena tagihan listrik Kanade sudah membengkak dan tidak ingin komputernya menyala secara terus - menerus, ia ingin program decrypt nama file miliknya dapat dimatikan secara aman berdasarkan PID dari proses program tersebut.
 Penggunaan:
     ./starterkit --shutdown
@@ -616,7 +714,17 @@ void shutdown_daemon() {
     }
 }
 ```
+Tampilan pemanggilan fungsi dalam main program:
+```bash
+     else if (strcmp(argv[1], "--shutdown") == 0) {
+        shutdown_daemon();
+    }
+```
+/*Tambahin image terminal*/
+
 F. Mafuyu dan Kanade juga ingin program mereka dapat digunakan dengan aman dan nyaman tanpa membahayakan penggunanya sendiri, mengingat Mizuki yang masih linglung setelah keluar dari labirin Santerra De Laponte. Oleh karena itu, tambahkan error handling sederhana untuk mencegah penggunaan yang salah pada program tersebut.
+
+Error handling terlampir dalam setiap fungsi
 
 G. Terakhir, untuk mencatat setiap penggunaan program ini, Kanade beserta Mafuyu ingin menambahkan log dari setiap penggunaan program ini dan menyimpannya ke dalam file bernama activity.log.
 Format:
@@ -647,6 +755,12 @@ void log_activity(const char *message) {
     }
 }
 ```
+Activity log dapat dilihat menggunakan perintah:
+
+```bash
+    cat activity.log
+```
+/*tambahkan image terminal*/
 
 ## Soal 3
 [Author: Afnaan / honque]
