@@ -62,6 +62,8 @@ void run_command(char *const argv[]) {
 - `else if (pid < 0) { perror("fork failed"); exit(EXIT_FAILURE); }`: Jika `fork()` gagal (nilai negatif), cetak pesan error dan keluar dari program dengan status gagal.
 - `else { int status; waitpid(pid, &status, 0); }`: Jika berada di proses induk, tunggu proses anak hingga selesai dengan `waitpid`.
 
+![image](https://github.com/user-attachments/assets/bb6a5270-c517-4f29-871b-4759dac7b45c)
+
 ```bash
 void download_and_extract() {
     struct stat st;
@@ -106,7 +108,6 @@ void download_and_extract() {
 - `char *unzip_args[] = { ... }; run_command(unzip_args);`: Menyiapkan argumen untuk `unzip` dan menjalankan perintah `unzip` untuk mengekstrak `Clues.zip`.
 - `char *rm_args[] = { ... }; run_command(rm_args);`: Menyiapkan argumen untuk `rm` dan menjalankan perintah untuk menghapus `Clues.zip`.
 - `printf("Downloaded and extracted Clues.zip\n");`: Menampilkan pesan bahwa proses download dan ekstraksi telah selesai.
-![image](https://github.com/user-attachments/assets/bb6a5270-c517-4f29-871b-4759dac7b45c)
 
 B. "Filtering the Files" → Karena kebanyakan dari file tersebut berawal dengan 1 huruf atau angka, kamu pun mencoba untuk memindahkan file-file yang hanya dinamakan dengan 1 huruf dan 1 angka tanpa special character kedalam folder bernama Filtered. Kamu tidak suka kalau terdapat banyak clue yang tidak berguna jadi disaat melakukan filtering, file yang tidak terfilter dihapus. Karena kamu tidak ingin membuat file kode lagi untuk filtering, maka kamu menggunakan file sebelumnya untuk filtering file-file tadi dengan menambahkan argumen saat ingin menjalankan action.c
 
@@ -782,6 +783,8 @@ A. Malware ini bekerja secara daemon dan menginfeksi perangkat korban dan menyem
 - `chdir(cwd);`: Berpindah ke direktori kerja (cwd) yang sebelumnya sudah ditentukan agar daemon tahu lokasi kerjanya.
 - `prctl(PR_SET_NAME, (unsigned long) "/init", 0, 0, 0);`: Mengatur nama proses di sistem menjadi "/init" untuk menyamarkan diri seolah proses sistem utama.
 
+![WhatsApp Image 2025-04-17 at 22 13 30_26168392](https://github.com/user-attachments/assets/0b3d5d64-c70f-4c2f-b86d-fd14c5c94435)
+
 B. Anak fitur pertama adalah sebuah encryptor bernama wannacryptor yang akan memindai directory saat ini dan mengenkripsi file dan folder (serta seluruh isi folder) di dalam directory tersebut menggunakan xor dengan timestamp saat program dijalankan. Encryptor pada folder dapat bekerja dengan dua cara, mengenkripsi seluruh isi folder secara rekursif, atau mengubah folder dan isinya ke dalam zip lalu mengenkripsi zip tersebut. Jika menggunakan metode rekursif, semua file di dalam folder harus terenkripsi , dari isi folder paling dalam sampai ke current directory, dan tidak mengubah struktur folder Jika menggunakan metode zip, folder yang dienkripsi harus dihapus oleh program. Pembagian metode sebagai berikut: Untuk kelompok ganjil menggunakan metode rekursif, dan kelompok genap menggunakan metode zip.
 
 ```bash
@@ -995,6 +998,8 @@ void wannacryptor() {
     - `zip_and_encrypt();`: Jalankan proses zip dan enkripsi.
     - `fprintf(log, "[wannacryptor] Enkripsi dijalankan.\n"); fflush(log);`: Catat ke dalam log bahwa proses enkripsi telah dilakukan.
     - `sleep(30);`: Tunggu selama 30 detik sebelum mengulang proses.
+
+![WhatsApp Image 2025-04-17 at 22 15 57_3a03caeb](https://github.com/user-attachments/assets/6b7eccae-82f2-4263-b683-d36f53769206)    
  
 C. Anak fitur kedua yang bernama trojan.wrm berfungsi untuk menyebarkan malware ini kedalam mesin korban dengan cara membuat salinan binary malware di setiap directory yang ada di home user.
 
@@ -1073,6 +1078,9 @@ void run_trojan() {
 - `printf("Berhasil copy ke %s\n", dest_path);`: Tampilkan pesan sukses copy ke folder target.
 - `closedir(dir);`: Tutup direktori setelah semua folder selesai diproses.
 - `while (1) { sleep(5); }`: Loop selamanya dengan delay 5 detik untuk mempertahankan proses tetap berjalan agar tidak langsung keluar.
+
+![WhatsApp Image 2025-04-17 at 22 18 17_07b1b005](https://github.com/user-attachments/assets/9b5d394e-3a19-4fd2-afc1-b66a2cd45b51)
+
 
 D. Anak fitur pertama dan kedua terus berjalan secara berulang ulang selama malware masih hidup dengan interval 30 detik.
 
@@ -1162,6 +1170,10 @@ void rodok_launcher() {
     - `execv("/proc/self/exe", args);`: Jalankan ulang diri sendiri dengan nama proses baru.
 - `else if (pid > 0)`: Di proses induk, simpan PID anak ke array.
 - `while (wait(&status) > 0);`: Tunggu semua proses anak selesai.
+
+![WhatsApp Image 2025-04-17 at 22 20 10_403735b8](https://github.com/user-attachments/assets/23ca127e-b1a3-4046-b4d8-56fa423f1cfb)
+
+![WhatsApp Image 2025-04-17 at 22 27 31_413864fb](https://github.com/user-attachments/assets/8a6e5b8d-7ee6-4fbf-a74f-2b97795e574f)
 
 ```bash
 void daemonize() {
