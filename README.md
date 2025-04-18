@@ -397,7 +397,9 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 ```
-/*nanti tambahin image output dalem terminal*/
+Pemanggilan dan output dalam terminal
+![Image](https://github.com/user-attachments/assets/eaf4eb38-c6f7-4293-bdf0-a3e0b07cb62d)
+![Image](https://github.com/user-attachments/assets/1dc8c0a6-d77e-4263-9eda-fd31a2bec248)
 
 B. Setelah mendownload starter kit tersebut, Mafuyu ternyata lupa bahwa pada starter kit tersebut, tidak ada alat untuk mendecrypt nama dari file yang diencrypt menggunakan algoritma Base64. Oleh karena itu, bantulah Mafuyu untuk membuat sebuah directory karantina yang dapat mendecrypt nama file yang ada di dalamnya (Hint: gunakan daemon).
 Penggunaan:
