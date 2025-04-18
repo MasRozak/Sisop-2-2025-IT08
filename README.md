@@ -398,8 +398,10 @@ int main(int argc, char *argv[]) {
     }
 ```
 Pemanggilan dan output dalam terminal
-![Image](https://github.com/user-attachments/assets/eaf4eb38-c6f7-4293-bdf0-a3e0b07cb62d)
-![Image](https://github.com/user-attachments/assets/1dc8c0a6-d77e-4263-9eda-fd31a2bec248)
+
+![Image](https://github.com/user-attachments/assets/a3279f93-aab2-4fa9-a8a9-56a4af539d2a)
+![Image](https://github.com/user-attachments/assets/bf712bb5-5fac-4c41-bf7a-8faf048d9c58)
+
 
 B. Setelah mendownload starter kit tersebut, Mafuyu ternyata lupa bahwa pada starter kit tersebut, tidak ada alat untuk mendecrypt nama dari file yang diencrypt menggunakan algoritma Base64. Oleh karena itu, bantulah Mafuyu untuk membuat sebuah directory karantina yang dapat mendecrypt nama file yang ada di dalamnya (Hint: gunakan daemon).
 Penggunaan:
@@ -547,7 +549,9 @@ Pemanggilan fungsi dalam main program:
         start_daemon();
     }
 ```
-/*tambahin image terminal*/
+Pemanggilan dan output dalam terminal:
+
+![Image](https://github.com/user-attachments/assets/e8bfdd1b-bae7-449d-a43c-fabdb5f0c267)
 
 C. Karena Kanade adalah orang yang sangat pemalas (kecuali jika membuat musik), maka tambahkan juga fitur untuk memindahkan file yang ada pada directory starter kit ke directory karantina, dan begitu juga sebaliknya.
 Penggunaan:
@@ -594,7 +598,10 @@ Pemanggilan fungsi dalam program utama:
         copy_files(QUARANTINE, STARTER_KIT, "starter kit");
     }
 ```
-/*Tambahin image terminal*/
+Tampilan pemanggilan dan output dalam terminal:
+
+![Image](https://github.com/user-attachments/assets/9d22fd3a-4bbb-4297-acc4-f5bf0eee409d)
+![Image](https://github.com/user-attachments/assets/8028ef15-0054-47ec-97e4-7db4487930dd)
 
 D. Ena memberikan ide kepada mereka untuk menambahkan fitur untuk menghapus file - file yang ada pada directory karantina. Mendengar ide yang bagus tersebut, Kanade pun mencoba untuk menambahkan fitur untuk menghapus seluruh file yang ada di dalam directory karantina.
 Penggunaan:
@@ -687,7 +694,9 @@ Tampilan pemanggilan fungsi dalam main program:
         eradicate_files();
     }
 ```
-/*Tambahin image terminal*/
+Tampilan pemanggilan dan output dalam terminal:
+
+![Image](https://github.com/user-attachments/assets/c97a6b07-baec-4674-bc0a-86455d15385c)
 
 E. Karena tagihan listrik Kanade sudah membengkak dan tidak ingin komputernya menyala secara terus - menerus, ia ingin program decrypt nama file miliknya dapat dimatikan secara aman berdasarkan PID dari proses program tersebut.
 Penggunaan:
@@ -723,11 +732,17 @@ Tampilan pemanggilan fungsi dalam main program:
         shutdown_daemon();
     }
 ```
-/*Tambahin image terminal*/
+![Image](https://github.com/user-attachments/assets/67539d40-20f2-4e9b-880f-0c8403607d61)
 
 F. Mafuyu dan Kanade juga ingin program mereka dapat digunakan dengan aman dan nyaman tanpa membahayakan penggunanya sendiri, mengingat Mizuki yang masih linglung setelah keluar dari labirin Santerra De Laponte. Oleh karena itu, tambahkan error handling sederhana untuk mencegah penggunaan yang salah pada program tersebut.
 
-Error handling terlampir dalam setiap fungsi
+Error handling dalam main program:
+```bash
+ else {
+        printf("Invalid option.\n");
+        return 1;
+    }
+```
 
 G. Terakhir, untuk mencatat setiap penggunaan program ini, Kanade beserta Mafuyu ingin menambahkan log dari setiap penggunaan program ini dan menyimpannya ke dalam file bernama activity.log.
 Format:
@@ -763,7 +778,8 @@ Activity log dapat dilihat menggunakan perintah:
 ```bash
     cat activity.log
 ```
-/*tambahkan image terminal*/
+![Image](https://github.com/user-attachments/assets/a61dff7b-674e-44f0-a621-f376cb2fdc84)
+
 
 ## Soal 3
 [Author: Afnaan / honque]
