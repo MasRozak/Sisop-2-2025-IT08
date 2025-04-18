@@ -1301,4 +1301,292 @@ int main(int argc, char *argv[]) {
 - `char *newargv[] = { "init", NULL}; execv("/proc/self/exe", newargv);`: Membuat proses baru dengan menjalankannya dengan argumen "init" yang kemudian akan menjalankan proses `wannacryptor`, `trojan.wrm`, dan `rodok.exe` dalam fork terpisah (Memastikan 3 proses tersebut berjalan secara terpisah).
 
 ## Soal 4
+[Author: Nayla / naylaarr]
 
+Suatu hari, Nobita menemukan sebuah alat aneh di laci mejanya. Alat ini berbentuk robot kecil dengan mata besar yang selalu berkedip-kedip. Doraemon berkata, "Ini adalah Debugmon! Robot super kepo yang bisa memantau semua aktivitas di komputer!" Namun, alat ini harus digunakan dengan hati-hati. Jika dipakai sembarangan, bisa-bisa komputer Nobita malah error total! 😱
+
+A. Mengetahui semua aktivitas user
+
+Doraemon ingin melihat apa saja yang sedang dijalankan user di komputernya. Maka, dia mengetik:
+`./debugmon list <user>`
+Debugmon langsung menampilkan daftar semua proses yang sedang berjalan pada user tersebut beserta PID, command, CPU usage, dan memory usage.
+
+```bash
+void handle_list(const char *username) {
+    struct passwd *pw = get_user_info(username);
+    if (!pw) return;
+
+    uid_t uid_target = pw->pw_uid;
+    DIR *proc = opendir("/proc");
+    if (!proc) return;
+
+    struct dirent *entry;
+    printf("%-8s %-20s %-10s %-10s\n", "PID", "COMMAND", "CPU(%)", "MEM(KB)");
+    while ((entry = readdir(proc))) {
+        if (is_number(entry->d_name)) {
+            uid_t uid;
+            char name[256];
+            if (get_process_info(entry->d_name, &uid, name, sizeof(name)) && uid == uid_target) {
+                float cpu;
+                long mem;
+                if (get_cpu_mem_usage(entry->d_name, &cpu, &mem))
+                    printf("%-8s %-20s %-10.2f %-10ld\n", entry->d_name, name, cpu, mem);
+            }
+        }
+    }
+
+    closedir(proc);
+}
+```
+- `struct passwd *pw = get_user_info(username);`: Mengambil informasi user berdasarkan username.
+- `if (!pw) return;`: Jika user tidak ditemukan, keluar dari fungsi. 
+- `uid_t uid_target = pw->pw_uid;`: Mendapatkan UID dari user yang dicari.
+- `DIR *proc = opendir("/proc");`: Membuka direktori `/proc` untuk membaca semua proses yang berjalan.
+- `printf("%-8s %-20s %-10s %-10s\n", "PID", "COMMAND", "CPU(%)", "MEM(KB)");`: Mencetak header tabel untuk output.
+- `while ((entry = readdir(proc))) { ... }`: Loop untuk membaca setiap entri di dalam direktori `/proc`.
+- `if (is_number(entry->d_name)) { ... }`: Memeriksa apakah nama entri adalah angka (PID).
+- `uid_t uid; char name[256];`: Mendeklarasikan variabel untuk menyimpan UID dan nama proses.
+- `if (get_process_info(entry->d_name, &uid, name, sizeof(name)) && uid == uid_target) { ... }`: Mengambil informasi proses berdasarkan PID dan memeriksa apakah UID-nya sesuai dengan UID target.
+- `if (get_cpu_mem_usage(entry->d_name, &cpu, &mem))`: Mengambil penggunaan CPU dan memori dari proses.
+- `printf("%-8s %-20s %-10.2f %-10ld\n", entry->d_name, name, cpu, mem);`: Mencetak informasi proses yang ditemukan.
+
+![Image](https://github.com/user-attachments/assets/3dce1336-d89c-468b-bf6a-82244111443d)
+
+B. Memasang mata-mata dalam mode daemon
+Doraemon ingin agar Debugmon terus memantau user secara otomatis. Doraemon pun menjalankan program ini secara daemon dan melakukan pencatatan ke dalam file log dengan menjalankan:
+`./debugmon daemon <user>`
+
+```bash
+    void handle_daemon(const char *username) {
+    struct passwd *pw = get_user_info(username);
+    if (!pw) return;
+
+    uid_t uid_target = pw->pw_uid;
+    char log_path[512], pid_path[512];
+    get_paths(pw->pw_dir, username, log_path, pid_path, NULL);
+
+    pid_t pid = fork();
+    if (pid < 0) exit(EXIT_FAILURE);
+    if (pid > 0) exit(EXIT_SUCCESS); // Parent
+
+    setsid();
+    chdir("/");
+    close(STDIN_FILENO); close(STDOUT_FILENO); close(STDERR_FILENO);
+
+    FILE *pid_file = fopen(pid_path, "w");
+    if (pid_file) {
+        fprintf(pid_file, "%d\n", getpid());
+        fclose(pid_file);
+    }
+
+    while (1) {
+        monitor_user(uid_target, log_path, is_failing_mode(pw->pw_dir));
+        sleep(1);
+    }
+}
+```
+- `struct passwd *pw = get_user_info(username);`: Mengambil informasi user berdasarkan username.
+- `if (!pw) return;`: Jika user tidak ditemukan, keluar dari fungsi.
+- `uid_t uid_target = pw->pw_uid;`: Mendapatkan UID dari user yang dicari.
+- `get_paths(pw->pw_dir, username, log_path, pid_path, NULL);`: Mengambil path log dan PID berdasarkan direktori home user.
+- `pid_t pid = fork();`: Membuat proses baru.
+- `if (pid < 0) exit(EXIT_FAILURE);`: Jika fork gagal, keluar dengan status error.
+- `if (pid > 0) exit(EXIT_SUCCESS);`: Jika ini adalah proses induk, keluar agar hanya proses anak yang berjalan.
+- `setsid();`: Membuat sesi baru agar proses tidak terikat pada terminal.
+- `chdir("/");`: Mengubah direktori kerja ke root.
+- `close(STDIN_FILENO); close(STDOUT_FILENO); close(STDERR_FILENO);`: Menutup semua file descriptor standar agar tidak terhubung ke terminal.
+- `FILE *pid_file = fopen(pid_path, "w");`: Membuka file PID untuk menulis.
+- `if (pid_file) { fprintf(pid_file, "%d\n", getpid()); fclose(pid_file); }`: Jika file berhasil dibuka, tulis PID proses ke dalam file dan tutup file.
+- `while (1) { monitor_user(uid_target, log_path, is_failing_mode(pw->pw_dir)); sleep(1); }`: Loop tak terhingga untuk memantau aktivitas user setiap detik.
+
+```bash
+void monitor_user(uid_t uid_target, const char *log_path, bool fail_mode) {
+    DIR *proc = opendir("/proc");
+    if (!proc) return;
+
+    struct dirent *entry;
+    while ((entry = readdir(proc))) {
+        if (is_number(entry->d_name)) {
+            uid_t uid;
+            char name[256];
+            if (get_process_info(entry->d_name, &uid, name, sizeof(name)) && uid == uid_target) {
+                int pid = atoi(entry->d_name);
+                if (pid < MAX_PID && !seen_pids[pid]) {
+                    seen_pids[pid] = true;
+                    if (fail_mode) {
+                        write_log(log_path, name, "FAILED");
+                        kill(pid, SIGKILL);
+                    }
+                }
+            }
+        }
+    }
+
+    closedir(proc);
+}
+``` 
+
+- `struct dirent *entry;`: Mendeklarasikan variabel untuk menyimpan entri direktori.
+- `while ((entry = readdir(proc))) { ... }`: Loop untuk membaca setiap entri di dalam direktori `/proc`.
+- `if (is_number(entry->d_name)) { ... }`: Memeriksa apakah nama entri adalah angka (PID).
+- `if (get_process_info(entry->d_name, &uid, name, sizeof(name)) && uid == uid_target) { ... }`: Mengambil informasi proses berdasarkan PID dan memeriksa apakah UID-nya sesuai dengan UID target.
+- `int pid = atoi(entry->d_name);`: Mengonversi nama entri menjadi PID.
+- `if (pid < MAX_PID && !seen_pids[pid]) { ... }`: Memeriksa apakah PID valid dan belum pernah dilihat sebelumnya.
+- `seen_pids[pid] = true;`: Tandai PID sebagai sudah dilihat.
+- `if (fail_mode) { write_log(log_path, name, "FAILED"); kill(pid, SIGKILL); }`: Jika dalam mode failing, tulis log dan bunuh proses.
+
+C. Menghentikan pengawasan
+User mulai panik karena setiap gerak-geriknya diawasi! Dia pun memohon pada Doraemon untuk menghentikannya dengan:
+`./debugmon stop <user>`
+
+```bash
+void handle_stop(const char *username) {
+    struct passwd *pw = get_user_info(username);
+    if (!pw) return;
+
+    char pid_path[512], log_path[512];
+    get_paths(pw->pw_dir, username, log_path, pid_path, NULL);
+
+    FILE *pid_file = fopen(pid_path, "r");
+    if (!pid_file) {
+        fprintf(stderr, "PID file not found. Is daemon running?\n");
+        return;
+    }
+
+    pid_t pid;
+    fscanf(pid_file, "%d", &pid);
+    fclose(pid_file);
+
+    if (kill(pid, SIGTERM) == 0) {
+        write_log(log_path, "debugmon-stop", "RUNNING");
+        remove(pid_path);
+        printf("Daemon for %s (PID %d) terminated.\n", username, pid);
+    } else {
+        perror("Failed to kill daemon");
+    }
+}
+```
+- `struct passwd *pw = get_user_info(username);`: Mengambil informasi user berdasarkan username.
+- `char pid_path[512], log_path[512];`: Mendeklarasikan variabel untuk menyimpan path PID dan log.
+- `get_paths(pw->pw_dir, username, log_path, pid_path, NULL);`: Mengambil path log dan PID berdasarkan direktori home user. 
+- `FILE *pid_file = fopen(pid_path, "r");`: Membuka file PID untuk dibaca.
+- `if (!pid_file) { fprintf(stderr, "PID file not found. Is daemon running?\n"); return; }`: Jika file tidak ditemukan, tampilkan pesan error dan keluar dari fungsi.
+- `pid_t pid; fscanf(pid_file, "%d", &pid); fclose(pid_file);`: Membaca PID dari file dan menutup file.
+- `if (kill(pid, SIGTERM) == 0) { ... }`: Mengirim sinyal SIGTERM ke proses daemon.
+- `write_log(log_path, "debugmon-stop ", "RUNNING");`: Menulis log bahwa daemon dihentikan.
+- `remove(pid_path);`: Menghapus file PID.
+
+D. Menggagalkan semua proses user yang sedang berjalan
+Doraemon yang iseng ingin mengerjai user dengan mengetik:
+`./debugmon fail <user>
+`Debugmon langsung menggagalkan semua proses yang sedang berjalan dan menulis status proses ke dalam file log dengan status FAILED. Selain menggagalkan, user juga tidak bisa menjalankan proses lain dalam mode ini.
+
+```bash
+void handle_fail(const char *username) {
+    struct passwd *pw = get_user_info(username);
+    if (!pw) return;
+
+    uid_t uid_target = pw->pw_uid;
+    char log_path[512], flag_path[512];
+    get_paths(pw->pw_dir, username, log_path, NULL, flag_path);
+
+    DIR *proc = opendir("/proc");
+    if (!proc) {
+        perror("opendir");
+        return;
+    }
+
+    struct dirent *entry;
+    while ((entry = readdir(proc))) {
+        if (is_number(entry->d_name)) {
+            uid_t uid;
+            char name[256];
+            if (get_process_info(entry->d_name, &uid, name, sizeof(name)) && uid == uid_target) {
+                pid_t pid = atoi(entry->d_name);
+                if (kill(pid, SIGKILL) == 0)
+                    write_log(log_path, name, "FAILED");
+            }
+        }
+    }
+
+    closedir(proc);
+
+    FILE *flag = fopen(flag_path, "w");
+    if (flag) {
+        fprintf(flag, "FAILING\n");
+        fclose(flag);
+    }
+
+    printf("Semua proses user '%s' digagalkan. Mode FAILING aktif.\n", username);
+    handle_daemon(username);
+}
+```
+- `char log_path[512], flag_path[512];`: Mendeklarasikan variabel untuk menyimpan path log dan flag.
+- `get_paths(pw->pw_dir, username, log_path, NULL, flag_path);`: Mengambil path log dan flag berdasarkan direktori home user.
+- `struct dirent *entry;`: Mendeklarasikan variabel untuk menyimpan entri direktori.
+- `while ((entry = readdir(proc))) { ... }`: Loop untuk membaca setiap entri di dalam direktori `/proc`.
+- `if (is_number(entry->d_name)) { ... }`: Memeriksa apakah nama entri adalah angka (PID).
+- `if (get_process_info(entry->d_name, &uid, name, sizeof(name)) && uid == uid_target) { ... }`: Mengambil informasi proses berdasarkan PID dan memeriksa apakah UID-nya sesuai dengan UID target.
+- `if (kill(pid, SIGKILL) == 0) write_log(log_path, name, "FAILED");`: Mengirim sinyal SIGKILL ke proses dan menulis log jika berhasil.
+- `closedir(proc);`: Menutup direktori `/proc` setelah selesai.
+- `FILE *flag = fopen(flag_path, "w");`: Membuka file flag untuk menulis.
+- `if (flag) { fprintf(flag, "FAILING\n"); fclose(flag); }`: Jika file berhasil dibuka, tulis status "FAILING" dan tutup file.
+- `printf("Semua proses user '%s' digagalkan. Mode FAILING aktif.\n", username);`: Menampilkan pesan bahwa semua proses user telah digagalkan dan mode Failing aktif.
+- `handle_daemon(username);`: Memanggil fungsi untuk menjalankan daemon dengan user yang sama.
+
+![Image](https://github.com/user-attachments/assets/8ac9be3f-19b0-4945-808e-839d0c4da095)
+User tidak bisa menjalankan proses lain
+
+
+E. Mengizinkan user untuk kembali menjalankan proses
+Karena kasihan, Shizuka meminta Doraemon untuk memperbaiki semuanya. Doraemon pun menjalankan:
+`./debugmon revert <user>`
+
+`Debugmon kembali ke mode normal dan bisa menjalankan proses lain seperti biasa.`
+
+```bash 
+    void handle_revert(const char *username) {
+    struct passwd *pw = get_user_info(username);
+    if (!pw) return;
+
+    char log_path[512], flag_path[512];
+    get_paths(pw->pw_dir, username, log_path, NULL, flag_path);
+    remove(flag_path);
+    write_log(log_path, "debugmon-revert", "RUNNING");
+    printf("Mode FAILING dimatikan untuk user '%s'.\n", username);
+    }
+```
+- `char log_path[512], flag_path[512];`: Mendeklarasikan variabel untuk menyimpan path log dan flag.
+- `get_paths(pw->pw_dir, username, log_path, NULL, flag_path);`: Mengambil path log dan flag berdasarkan direktori home user.
+- `remove(flag_path);`: Menghapus file flag untuk menonaktifkan mode Failing.
+
+![Image](https://github.com/user-attachments/assets/b18513e6-7e42-4714-b41c-d36582ba3b57)
+User sudah bisa menjalankan proses lain
+
+F. Mencatat ke dalam file log
+Sebagai dokumentasi untuk mengetahui apa saja yang debugmon lakukan di komputer user, debugmon melakukan pencatatan dan penyimpanan ke dalam file debugmon.log untuk semua proses yang dijalankan dengan format
+[dd:mm:yyyy]-[hh:mm:ss]_nama-process_STATUS(RUNNING/FAILED)
+Untuk poin b, c, dan e, status proses adalah RUNNING. Sedangkan untuk poin d, status proses adalah FAILED. 
+
+```bash
+void write_log(const char *log_path, const char *process_name, const char *status) {
+    FILE *log = fopen(log_path, "a");
+    if (!log) return;
+
+    char d[64], h[64];
+    time_t now = time(NULL);
+    strftime(d, sizeof(d), "%d:%m:%Y", localtime(&now));
+    strftime(h, sizeof(h), "%H:%M:%S", localtime(&now));
+    fprintf(log, "[%s]-[%s]_%s_%s\n", d, h, process_name, status);
+    fclose(log);
+}
+```
+- `FILE *log = fopen(log_path, "a");`: Membuka file log untuk ditulis dalam mode append.
+- `char d[64], h[64];`: Mendeklarasikan variabel untuk menyimpan tanggal dan waktu.
+- `time_t now = time(NULL);`: Mendapatkan waktu saat ini.
+- `strftime(d, sizeof(d), "%d:%m:%Y", localtime(&now));`: Mengonversi waktu saat ini menjadi format tanggal.
+- `strftime(h, sizeof(h), "%H:%M:%S", localtime(&now));`: Mengonversi waktu saat ini menjadi format jam.
+- `fprintf(log, "[%s]-[%s]_%s_%s\n", d, h, process_name, status);`: Menulis log dengan format yang ditentukan.
+- `fclose(log);`: Menutup file log setelah selesai menulis.
+
+![Image](https://github.com/user-attachments/assets/824a7dd5-9360-4916-b1be-85a31550bf74)
