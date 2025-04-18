@@ -1535,6 +1535,7 @@ void handle_fail(const char *username) {
 - `handle_daemon(username);`: Memanggil fungsi untuk menjalankan daemon dengan user yang sama.
 
 ![Image](https://github.com/user-attachments/assets/8ac9be3f-19b0-4945-808e-839d0c4da095)
+
 User tidak bisa menjalankan proses lain
 
 
